@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -59,6 +60,17 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
     );
   }
 
+  Future<void> _showGitBranchSheet() async {
+    showModalBottomSheet(
+      context: context,
+      isDismissible: true,
+      builder: (ctx) => _GitBranchSheet(
+        session: _session,
+        onDismiss: () => Navigator.pop(ctx),
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _stateSub?.cancel();
@@ -106,6 +118,15 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
         foregroundColor: Colors.white,
         title: Text(widget.profile.name),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.account_tree),
+            tooltip: 'git branches',
+            onPressed: () {
+              if (_session.ssh.state == SshConnectionState.connected) {
+                _showGitBranchSheet();
+              }
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.layers),
             tooltip: 'tmux sessions',
@@ -173,7 +194,7 @@ class _TmuxSessionSheetState extends State<_TmuxSessionSheet> {
               'tmux set -g mouse on 2>/dev/null; '
               'export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8; '
               'tmux -u attach-session -t claude-code\n';
-          widget.session.sendKey(cmd);
+          widget.session.detachAndRun(cmd);
         },
       ),
     );
@@ -199,7 +220,7 @@ class _TmuxSessionSheetState extends State<_TmuxSessionSheet> {
               'tmux set -g mouse on 2>/dev/null; '
               'export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8; '
               'tmux -u attach-session -t $sessionName\n';
-          widget.session.sendKey(cmd);
+          widget.session.detachAndRun(cmd);
         },
       ),
     );
@@ -732,6 +753,323 @@ class _ClaudeTaskDialogState extends State<_ClaudeTaskDialog> {
         FilledButton(
           onPressed: _submit,
           child: const Text('Start Task'),
+        ),
+      ],
+    );
+  }
+}
+
+class _GitBranchSheet extends StatefulWidget {
+  final TerminalSession session;
+  final VoidCallback onDismiss;
+  const _GitBranchSheet({required this.session, required this.onDismiss});
+
+  @override
+  State<_GitBranchSheet> createState() => _GitBranchSheetState();
+}
+
+class _GitBranchSheetState extends State<_GitBranchSheet> {
+  List<String> _local = [];
+  List<String> _remote = [];
+  String _current = '';
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadBranches();
+  }
+
+  Future<void> _loadBranches() async {
+    final result = await widget.session.listGitBranches();
+    if (!mounted) return;
+    setState(() {
+      _local = result.local;
+      _remote = result.remote;
+      _current = result.current;
+      _loading = false;
+    });
+  }
+
+  void _checkout(String branch) {
+    widget.onDismiss();
+    widget.session.checkoutBranch(branch);
+  }
+
+  void _runGitCommand(String cmd) {
+    widget.onDismiss();
+    widget.session.ssh.write(utf8.encode('$cmd\n'));
+  }
+
+  void _showCommitPrDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => _CommitPrDialog(
+        session: widget.session,
+        onSubmit: (baseBranch) {
+          Navigator.pop(ctx);
+          widget.onDismiss();
+          final script = '''
+git add -A && '''
+              '''DIFF=\$(git diff --cached --stat 2>/dev/null) && '''
+              '''if [ -z "\$DIFF" ]; then echo "No changes to commit"; '''
+              '''else '''
+              '''MSG=\$(git diff --cached | head -200 | claude -p "Based on this git diff, generate a one-line commit message in conventional commits format (feat:/fix:/refactor:/chore:). Output ONLY the commit message, nothing else." 2>/dev/null) && '''
+              '''if [ -z "\$MSG" ]; then MSG="chore: update \$(git diff --cached --stat | tail -1 | xargs)"; fi && '''
+              '''git commit -m "\$MSG" && '''
+              '''BRANCH=\$(git branch --show-current) && '''
+              '''git push -u origin \$BRANCH && '''
+              '''gh pr create --base $baseBranch --fill; '''
+              '''fi\n''';
+          widget.session.ssh.write(utf8.encode(script));
+        },
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            child: Row(
+              children: [
+                const Icon(Icons.account_tree, size: 20),
+                const SizedBox(width: 8),
+                const Text(
+                  'Git Branches',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+                const Spacer(),
+                IconButton(
+                  icon: const Icon(Icons.refresh),
+                  tooltip: 'Refresh',
+                  onPressed: _loading
+                      ? null
+                      : () {
+                          setState(() => _loading = true);
+                          _loadBranches();
+                        },
+                ),
+                TextButton(
+                  onPressed: widget.onDismiss,
+                  child: const Text('Close'),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                ActionChip(
+                  avatar: const Icon(Icons.download, size: 16),
+                  label: const Text('pull'),
+                  onPressed: () => _runGitCommand('git pull'),
+                ),
+                ActionChip(
+                  avatar: const Icon(Icons.upload, size: 16),
+                  label: const Text('push'),
+                  onPressed: () => _runGitCommand('git push'),
+                ),
+                ActionChip(
+                  avatar: const Icon(Icons.info_outline, size: 16),
+                  label: const Text('status'),
+                  onPressed: () => _runGitCommand('git status'),
+                ),
+                ActionChip(
+                  avatar: const Icon(Icons.history, size: 16),
+                  label: const Text('log'),
+                  onPressed: () =>
+                      _runGitCommand('git log --oneline -20'),
+                ),
+                ActionChip(
+                  avatar: const Icon(Icons.difference, size: 16),
+                  label: const Text('diff'),
+                  onPressed: () => _runGitCommand('git diff'),
+                ),
+                ActionChip(
+                  avatar: const Icon(Icons.save, size: 16),
+                  label: const Text('stash'),
+                  onPressed: () => _runGitCommand('git stash'),
+                ),
+                ActionChip(
+                  avatar: const Icon(Icons.restore, size: 16),
+                  label: const Text('stash pop'),
+                  onPressed: () => _runGitCommand('git stash pop'),
+                ),
+                ActionChip(
+                  avatar: const Icon(Icons.sync, size: 16),
+                  label: const Text('fetch'),
+                  onPressed: () => _runGitCommand('git fetch --all'),
+                ),
+                ActionChip(
+                  avatar: const Icon(Icons.publish, size: 16),
+                  label: const Text('Commit & PR'),
+                  onPressed: () => _showCommitPrDialog(),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          if (_loading)
+            const Padding(
+              padding: EdgeInsets.all(32),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  SizedBox(width: 12),
+                  Text('Loading branches...'),
+                ],
+              ),
+            )
+          else if (_local.isEmpty && _remote.isEmpty)
+            const Padding(
+              padding: EdgeInsets.all(24),
+              child: Text('Not a git repository or no branches found'),
+            )
+          else
+            Flexible(
+              child: ListView(
+                shrinkWrap: true,
+                children: [
+                  if (_local.isNotEmpty) ...[
+                    const Padding(
+                      padding: EdgeInsets.fromLTRB(16, 8, 16, 4),
+                      child: Text('Local',
+                          style: TextStyle(
+                              fontSize: 12, color: Colors.grey)),
+                    ),
+                    ..._local.map((branch) => ListTile(
+                          dense: true,
+                          leading: Icon(
+                            branch == _current
+                                ? Icons.radio_button_checked
+                                : Icons.radio_button_off,
+                            color: branch == _current
+                                ? Colors.green
+                                : Colors.grey,
+                            size: 20,
+                          ),
+                          title: Text(
+                            branch,
+                            style: TextStyle(
+                              fontWeight: branch == _current
+                                  ? FontWeight.bold
+                                  : FontWeight.normal,
+                              color: branch == _current
+                                  ? Colors.green
+                                  : null,
+                            ),
+                          ),
+                          trailing: branch == _current
+                              ? const Chip(
+                                  label: Text('current',
+                                      style: TextStyle(fontSize: 11)),
+                                  visualDensity: VisualDensity.compact,
+                                )
+                              : const Icon(Icons.chevron_right),
+                          onTap: branch == _current
+                              ? null
+                              : () => _checkout(branch),
+                        )),
+                  ],
+                  if (_remote.isNotEmpty) ...[
+                    const Padding(
+                      padding: EdgeInsets.fromLTRB(16, 12, 16, 4),
+                      child: Text('Remote',
+                          style: TextStyle(
+                              fontSize: 12, color: Colors.grey)),
+                    ),
+                    ..._remote.map((branch) => ListTile(
+                          dense: true,
+                          leading: const Icon(Icons.cloud_outlined,
+                              size: 20, color: Colors.grey),
+                          title: Text(branch,
+                              style: const TextStyle(fontSize: 14)),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () => _checkout(branch),
+                        )),
+                  ],
+                ],
+              ),
+            ),
+          const SizedBox(height: 8),
+        ],
+      ),
+    );
+  }
+}
+
+class _CommitPrDialog extends StatefulWidget {
+  final TerminalSession session;
+  final void Function(String baseBranch) onSubmit;
+  const _CommitPrDialog({required this.session, required this.onSubmit});
+
+  @override
+  State<_CommitPrDialog> createState() => _CommitPrDialogState();
+}
+
+class _CommitPrDialogState extends State<_CommitPrDialog> {
+  final _baseBranchController = TextEditingController(text: 'main');
+
+  @override
+  void dispose() {
+    _baseBranchController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Commit & Create PR'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'This will:\n'
+            '1. Stage all changes (git add -A)\n'
+            '2. Auto-generate commit message via Claude\n'
+            '3. Push to remote\n'
+            '4. Create PR via gh',
+            style: TextStyle(fontSize: 13, color: Colors.grey),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _baseBranchController,
+            decoration: const InputDecoration(
+              isDense: true,
+              labelText: 'Target branch',
+              hintText: 'main',
+              border: OutlineInputBorder(),
+            ),
+            style: const TextStyle(fontSize: 14),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () {
+            final base = _baseBranchController.text.trim();
+            widget.onSubmit(base.isEmpty ? 'main' : base);
+          },
+          child: const Text('Create'),
         ),
       ],
     );
