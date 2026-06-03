@@ -1,0 +1,10 @@
+_mosh_client_create
+_mosh_client_start
+_mosh_client_send_input
+_mosh_client_receive_output
+_mosh_client_resize
+_mosh_client_get_state
+_mosh_client_get_rtt
+_mosh_client_get_last_heard
+_mosh_client_stop
+_mosh_client_destroy

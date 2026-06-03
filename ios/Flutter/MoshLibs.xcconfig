@@ -1,0 +1,4 @@
+// MoshLibs.xcconfig — link mosh native libraries
+LIBRARY_SEARCH_PATHS = $(inherited) $(PROJECT_DIR)/Frameworks/MoshClient.xcframework/ios-arm64 $(PROJECT_DIR)/MoshBuild/build/openssl-ios/lib $(PROJECT_DIR)/MoshBuild/build/protobuf-ios/lib
+HEADER_SEARCH_PATHS = $(inherited) $(PROJECT_DIR)/Frameworks/MoshClient.xcframework/ios-arm64/Headers
+OTHER_LDFLAGS = $(inherited) -force_load $(PROJECT_DIR)/Frameworks/MoshClient.xcframework/ios-arm64/libmoshclient.a -lprotobuf-lite -lcrypto -lz -lc++ -Wl,-exported_symbols_list,$(PROJECT_DIR)/MoshBuild/mosh_exports.txt

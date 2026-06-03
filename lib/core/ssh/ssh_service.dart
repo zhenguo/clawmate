@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:dartssh2/dartssh2.dart';
@@ -12,9 +13,24 @@ class SshService {
   SshConnectionState _state = SshConnectionState.disconnected;
   String? _errorMessage;
 
+  int _bytesIn = 0;
+  int _bytesOut = 0;
+  int _lastBytesIn = 0;
+  int _lastBytesOut = 0;
+
   SshConnectionState get state => _state;
   String? get errorMessage => _errorMessage;
   SSHSession? get session => _session;
+  int get bytesIn => _bytesIn;
+  int get bytesOut => _bytesOut;
+
+  ({int rxSpeed, int txSpeed}) snapshotSpeed() {
+    final rx = _bytesIn - _lastBytesIn;
+    final tx = _bytesOut - _lastBytesOut;
+    _lastBytesIn = _bytesIn;
+    _lastBytesOut = _bytesOut;
+    return (rxSpeed: rx, txSpeed: tx);
+  }
 
   final _stateController = StreamController<SshConnectionState>.broadcast();
   Stream<SshConnectionState> get stateStream => _stateController.stream;
@@ -29,8 +45,10 @@ class SshService {
   }) async {
     _setState(SshConnectionState.connecting);
     try {
-      final socket = await SSHSocket.connect(host, port,
+      final rawSocket = await Socket.connect(host, port,
           timeout: const Duration(seconds: 10));
+      rawSocket.setOption(SocketOption.tcpNoDelay, true);
+      final socket = _NoDelaySSHSocket(rawSocket);
 
       _client = SSHClient(
         socket,
@@ -83,7 +101,24 @@ class SshService {
     return utf8.decode(result);
   }
 
+  Future<int> ping() async {
+    if (_client == null) return -1;
+    try {
+      final sw = Stopwatch()..start();
+      await _client!.ping();
+      sw.stop();
+      return sw.elapsedMilliseconds;
+    } catch (_) {
+      return -1;
+    }
+  }
+
+  void addBytesIn(int count) {
+    _bytesIn += count;
+  }
+
   void write(Uint8List data) {
+    _bytesOut += data.length;
     _session?.stdin.add(data);
   }
 
@@ -108,5 +143,30 @@ class SshService {
     _session = null;
     _client = null;
     _stateController.close();
+  }
+}
+
+class _NoDelaySSHSocket implements SSHSocket {
+  final Socket _socket;
+
+  _NoDelaySSHSocket(this._socket);
+
+  @override
+  Stream<Uint8List> get stream => _socket;
+
+  @override
+  StreamSink<List<int>> get sink => _socket;
+
+  @override
+  Future<void> close() async {
+    await _socket.close();
+  }
+
+  @override
+  Future<void> get done => _socket.done;
+
+  @override
+  void destroy() {
+    _socket.destroy();
   }
 }

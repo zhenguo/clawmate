@@ -7,6 +7,7 @@ class KeyboardToolbar extends StatelessWidget {
   final ValueChanged<String> onKeyTap;
   final VoidCallback? onHideKeyboard;
   final ValueChanged<String>? onPaste;
+  final VoidCallback? onCopyTerminal;
   final bool isListening;
   final VoidCallback? onVoiceToggle;
 
@@ -17,6 +18,7 @@ class KeyboardToolbar extends StatelessWidget {
     required this.onKeyTap,
     this.onHideKeyboard,
     this.onPaste,
+    this.onCopyTerminal,
     this.isListening = false,
     this.onVoiceToggle,
   });
@@ -30,17 +32,15 @@ class KeyboardToolbar extends StatelessWidget {
         scrollDirection: Axis.horizontal,
         child: Row(
           children: [
+            _buildKey('📄', () => onCopyTerminal?.call()),
             _buildKey('Esc', () => onKeyTap('\x1b')),
-            _buildKey('Tab', () => onKeyTap('\t')),
-            _buildCtrl(),
+            _buildKey('/', () => onKeyTap('/')),
             _buildKey('↑', () => onKeyTap('\x1b[A')),
             _buildKey('↓', () => onKeyTap('\x1b[B')),
-            _buildKey('←', () => onKeyTap('\x1b[D')),
-            _buildKey('→', () => onKeyTap('\x1b[C')),
-_buildKey('|', () => onKeyTap('|')),
+            _buildKey('⏎', () => onKeyTap('\r')),
+            _buildKey('|', () => onKeyTap('|')),
             _buildKey('~', () => onKeyTap('~')),
             _buildKey('⌫', () => onKeyTap('\x7f')),
-            _buildKey('⏎', () => onKeyTap('\r')),
             _buildKey('📋', () async {
               final data = await Clipboard.getData(Clipboard.kTextPlain);
               if (data?.text != null && data!.text!.isNotEmpty) {

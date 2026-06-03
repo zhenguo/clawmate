@@ -34,6 +34,7 @@ class ConnectionsNotifier extends AsyncNotifier<List<ConnectionProfile>> {
     required int port,
     required String username,
     required String password,
+    TransportType transportType = TransportType.ssh,
   }) async {
     final profile = ConnectionProfile(
       id: _uuid.v4(),
@@ -41,6 +42,7 @@ class ConnectionsNotifier extends AsyncNotifier<List<ConnectionProfile>> {
       host: host,
       port: port,
       username: username,
+      transportType: transportType,
     );
     await SecureStorageService.savePassword(profile.id, password);
     final updated = [...state.requireValue, profile];
@@ -56,6 +58,7 @@ class ConnectionsNotifier extends AsyncNotifier<List<ConnectionProfile>> {
     required int port,
     required String username,
     String? password,
+    TransportType? transportType,
   }) async {
     final list = [...state.requireValue];
     final idx = list.indexWhere((c) => c.id == id);
@@ -65,6 +68,7 @@ class ConnectionsNotifier extends AsyncNotifier<List<ConnectionProfile>> {
       host: host,
       port: port,
       username: username,
+      transportType: transportType,
     );
     if (password != null && password.isNotEmpty) {
       await SecureStorageService.savePassword(id, password);

@@ -30,6 +30,7 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
   late final TextEditingController _portCtrl;
   late final TextEditingController _usernameCtrl;
   late final TextEditingController _passwordCtrl;
+  late TransportType _transportType;
   bool _saving = false;
 
   bool get _isEditing => widget.profile != null;
@@ -46,6 +47,7 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
     _usernameCtrl = TextEditingController(
         text: widget.profile?.username ?? 'lizhenguo1');
     _passwordCtrl = TextEditingController();
+    _transportType = widget.profile?.transportType ?? TransportType.ssh;
     if (_isEditing) _loadPassword();
   }
 
@@ -109,6 +111,36 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
               },
             ),
             const SizedBox(height: 12),
+            Row(
+              children: [
+                const Text('Transport: '),
+                const SizedBox(width: 8),
+                SegmentedButton<TransportType>(
+                  segments: const [
+                    ButtonSegment(
+                      value: TransportType.ssh,
+                      label: Text('SSH'),
+                    ),
+                    ButtonSegment(
+                      value: TransportType.mosh,
+                      label: Text('Mosh'),
+                    ),
+                  ],
+                  selected: {_transportType},
+                  onSelectionChanged: (v) =>
+                      setState(() => _transportType = v.first),
+                ),
+              ],
+            ),
+            if (_transportType == TransportType.mosh)
+              const Padding(
+                padding: EdgeInsets.only(top: 4),
+                child: Text(
+                  'Requires mosh-server installed on the remote host',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+              ),
+            const SizedBox(height: 12),
             TextFormField(
               controller: _usernameCtrl,
               decoration: const InputDecoration(
@@ -163,6 +195,7 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
         port: int.parse(_portCtrl.text),
         username: _usernameCtrl.text.trim(),
         password: _passwordCtrl.text.isNotEmpty ? _passwordCtrl.text : null,
+        transportType: _transportType,
       );
     } else {
       await notifier.add(
@@ -171,6 +204,7 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
         port: int.parse(_portCtrl.text),
         username: _usernameCtrl.text.trim(),
         password: _passwordCtrl.text,
+        transportType: _transportType,
       );
     }
 

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -18,35 +17,108 @@ class TerminalScreen extends ConsumerStatefulWidget {
   ConsumerState<TerminalScreen> createState() => _TerminalScreenState();
 }
 
-class _TerminalScreenState extends ConsumerState<TerminalScreen> {
+class _TerminalScreenState extends ConsumerState<TerminalScreen>
+    with WidgetsBindingObserver {
   late TerminalSession _session;
   StreamSubscription<SshConnectionState>? _stateSub;
+  Timer? _speedTimer;
+  Timer? _reconnectTimer;
+  Timer? _pingTimer;
+  String _speedText = '';
+  int _latencyMs = -1;
+  int _reconnectAttempts = 0;
+  static const _maxReconnectAttempts = 10;
 
   bool _wasConnected = false;
   bool _dialogShowing = false;
+  bool _autoReconnecting = false;
+  bool _initialConnectFailed = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _session = ref.read(terminalProvider(widget.profile));
     _connectAndDetectTmux();
-    _stateSub = _session.ssh.stateStream.listen((state) {
+    _speedTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      final s = _session.snapshotSpeed();
+      setState(() {
+        _speedText = '${_formatSpeed(s.rxSpeed)}/s ↓  ${_formatSpeed(s.txSpeed)}/s ↑';
+      });
+    });
+    _pingTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+      _measureLatency();
+    });
+    _stateSub = _session.connectionStateStream.listen((state) {
       if (state == SshConnectionState.connected) {
         _wasConnected = true;
+        _reconnectAttempts = 0;
+        _autoReconnecting = false;
+        _reconnectTimer?.cancel();
       }
       if (state == SshConnectionState.disconnected &&
           _wasConnected &&
           mounted &&
           !_dialogShowing) {
-        _showDisconnectedDialog();
+        _startAutoReconnect();
+      }
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted) {
+      if (_session.connectionState == SshConnectionState.disconnected && _wasConnected) {
+        _startAutoReconnect();
+      }
+    }
+  }
+
+  void _startAutoReconnect() {
+    if (_autoReconnecting) return;
+    _autoReconnecting = true;
+    _reconnectAttempts = 0;
+    _session.terminal.write('\r\nConnection lost. Auto-reconnecting...\r\n');
+    _tryReconnect();
+  }
+
+  void _tryReconnect() {
+    if (!mounted || !_autoReconnecting) return;
+    _reconnectAttempts++;
+    if (_reconnectAttempts > _maxReconnectAttempts) {
+      _autoReconnecting = false;
+      _session.terminal.write('\r\nAuto-reconnect failed after $_maxReconnectAttempts attempts.\r\n');
+      _showDisconnectedDialog();
+      return;
+    }
+    final delay = _reconnectAttempts <= 3 ? 2 : 5;
+    _session.terminal.write('Attempt $_reconnectAttempts/$_maxReconnectAttempts in ${delay}s...\r\n');
+    _reconnectTimer?.cancel();
+    _reconnectTimer = Timer(Duration(seconds: delay), () async {
+      if (!mounted || !_autoReconnecting) return;
+      await _session.reconnect();
+      if (_session.connectionState != SshConnectionState.connected) {
+        _tryReconnect();
       }
     });
   }
 
   Future<void> _connectAndDetectTmux() async {
+    setState(() => _initialConnectFailed = false);
     await _session.connect();
-    if (!mounted || _session.ssh.state != SshConnectionState.connected) return;
+    if (!mounted) return;
+    if (!_session.isConnected) {
+      setState(() => _initialConnectFailed = true);
+      return;
+    }
     _showTmuxSessionSheet();
+  }
+
+  void _retryConnect() {
+    setState(() => _initialConnectFailed = false);
+    _session.resetTransport();
+    _connectAndDetectTmux();
   }
 
   Future<void> _showTmuxSessionSheet() async {
@@ -73,19 +145,45 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _speedTimer?.cancel();
+    _pingTimer?.cancel();
+    _reconnectTimer?.cancel();
     _stateSub?.cancel();
     super.dispose();
   }
 
+  Future<void> _measureLatency() async {
+    if (_session.connectionState != SshConnectionState.connected) return;
+    final ms = await _session.ping();
+    if (mounted) setState(() => _latencyMs = ms);
+  }
+
+  static ({String label, Color color}) _networkQuality(int ms) {
+    if (ms < 0) return (label: 'Unknown', color: Colors.grey);
+    if (ms <= 50) return (label: 'Excellent', color: Colors.greenAccent);
+    if (ms <= 100) return (label: 'Good', color: Colors.green);
+    if (ms <= 200) return (label: 'Fair', color: Colors.orange);
+    return (label: 'Poor', color: Colors.red);
+  }
+
+  static String _formatSpeed(int bytesPerSec) {
+    if (bytesPerSec < 1024) return '${bytesPerSec}B';
+    if (bytesPerSec < 1024 * 1024) return '${(bytesPerSec / 1024).toStringAsFixed(1)}KB';
+    return '${(bytesPerSec / 1024 / 1024).toStringAsFixed(1)}MB';
+  }
+
   void _showDisconnectedDialog() {
     if (!mounted || _dialogShowing) return;
+    _autoReconnecting = false;
+    _reconnectTimer?.cancel();
     _dialogShowing = true;
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
         title: const Text('Disconnected'),
-        content: const Text('SSH connection lost.'),
+        content: const Text('Auto-reconnect failed. SSH connection lost.'),
         actions: [
           TextButton(
             onPressed: () {
@@ -116,13 +214,43 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
       appBar: AppBar(
         backgroundColor: Colors.grey[900],
         foregroundColor: Colors.white,
-        title: Text(widget.profile.name),
+        titleSpacing: 0,
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(widget.profile.name,
+                style: const TextStyle(fontSize: 14)),
+            Row(
+              children: [
+                if (_latencyMs >= 0) ...[
+                  Container(
+                    width: 6,
+                    height: 6,
+                    decoration: BoxDecoration(
+                      color: _networkQuality(_latencyMs).color,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    '${_networkQuality(_latencyMs).label} ${_latencyMs}ms',
+                    style: TextStyle(fontSize: 10, color: _networkQuality(_latencyMs).color),
+                  ),
+                  const SizedBox(width: 8),
+                ],
+                if (_speedText.isNotEmpty)
+                  Text(_speedText,
+                      style: TextStyle(fontSize: 10, color: Colors.grey[400])),
+              ],
+            ),
+          ],
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.account_tree),
             tooltip: 'git branches',
             onPressed: () {
-              if (_session.ssh.state == SshConnectionState.connected) {
+              if (_session.connectionState == SshConnectionState.connected) {
                 _showGitBranchSheet();
               }
             },
@@ -131,7 +259,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
             icon: const Icon(Icons.layers),
             tooltip: 'tmux sessions',
             onPressed: () {
-              if (_session.ssh.state == SshConnectionState.connected) {
+              if (_session.connectionState == SshConnectionState.connected) {
                 _showTmuxSessionSheet();
               }
             },
@@ -139,14 +267,31 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
           IconButton(
             icon: const Icon(Icons.close),
             onPressed: () {
-              _session.ssh.disconnect();
+              _session.disconnect();
               Navigator.pop(context);
             },
           ),
         ],
       ),
       body: SafeArea(
-        child: TerminalView(session: _session),
+        child: Stack(
+          children: [
+            TerminalView(session: _session),
+            if (_initialConnectFailed)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 48,
+                child: Center(
+                  child: FilledButton.icon(
+                    onPressed: _retryConnect,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Retry'),
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -798,7 +943,7 @@ class _GitBranchSheetState extends State<_GitBranchSheet> {
 
   void _runGitCommand(String cmd) {
     widget.onDismiss();
-    widget.session.ssh.write(utf8.encode('$cmd\n'));
+    widget.session.sendKey('$cmd\n');
   }
 
   void _showCommitPrDialog() {
@@ -821,7 +966,7 @@ git add -A && '''
               '''git push -u origin \$BRANCH && '''
               '''gh pr create --base $baseBranch --fill; '''
               '''fi\n''';
-          widget.session.ssh.write(utf8.encode(script));
+          widget.session.sendKey(script);
         },
       ),
     );

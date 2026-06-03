@@ -306,7 +306,10 @@ class _ConnectionTile extends ConsumerWidget {
     return ListTile(
       leading: const Icon(Icons.computer),
       title: Text(profile.name),
-      subtitle: Text('${profile.username}@${profile.host}:${profile.port}'),
+      subtitle: Text(
+        '${profile.username}@${profile.host}:${profile.port}'
+        '${profile.transportType == TransportType.mosh ? ' (Mosh)' : ''}',
+      ),
       trailing: const Icon(Icons.chevron_right),
       onTap: () {
         Navigator.of(context).push(

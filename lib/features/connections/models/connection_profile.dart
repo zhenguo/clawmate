@@ -1,11 +1,14 @@
 import 'dart:convert';
 
+enum TransportType { ssh, mosh }
+
 class ConnectionProfile {
   final String id;
   final String name;
   final String host;
   final int port;
   final String username;
+  final TransportType transportType;
 
   ConnectionProfile({
     required this.id,
@@ -13,6 +16,7 @@ class ConnectionProfile {
     required this.host,
     this.port = 22,
     required this.username,
+    this.transportType = TransportType.ssh,
   });
 
   ConnectionProfile copyWith({
@@ -20,6 +24,7 @@ class ConnectionProfile {
     String? host,
     int? port,
     String? username,
+    TransportType? transportType,
   }) {
     return ConnectionProfile(
       id: id,
@@ -27,6 +32,7 @@ class ConnectionProfile {
       host: host ?? this.host,
       port: port ?? this.port,
       username: username ?? this.username,
+      transportType: transportType ?? this.transportType,
     );
   }
 
@@ -36,6 +42,7 @@ class ConnectionProfile {
         'host': host,
         'port': port,
         'username': username,
+        'transportType': transportType.name,
       };
 
   factory ConnectionProfile.fromJson(Map<String, dynamic> json) {
@@ -45,6 +52,9 @@ class ConnectionProfile {
       host: json['host'] as String,
       port: json['port'] as int? ?? 22,
       username: json['username'] as String,
+      transportType: json['transportType'] == 'mosh'
+          ? TransportType.mosh
+          : TransportType.ssh,
     );
   }
 
