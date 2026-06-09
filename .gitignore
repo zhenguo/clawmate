@@ -47,3 +47,27 @@ app.*.map.json
 # Mosh build intermediates
 ios/MoshBuild/build/
 ios/MoshBuild/mosh-src/
+
+# iOS / CocoaPods
+ios/Pods/
+ios/.symlinks/
+ios/Flutter/App.framework
+ios/Flutter/Flutter.framework
+ios/Flutter/Flutter.podspec
+ios/Flutter/Generated.xcconfig
+ios/Flutter/ephemeral/
+ios/Flutter/flutter_export_environment.sh
+ios/Runner/GeneratedPluginRegistrant.*
+ios/ServiceDefinitions.json
+**/xcuserdata/
+**/*.xcuserstate
+**/Pods/
+
+# Local secrets / ad-hoc scripts
+test_ssh.dart
+test_ssh2.dart
+*.mobileprovision
+*.p12
+
+# OS
+Thumbs.db

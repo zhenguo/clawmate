@@ -205,7 +205,13 @@ static void* mosh_network_thread(void* arg) {
             c->local_fb = c->new_state;
 
             // Tick: send pending state diffs and keepalives via UDP
-            c->network->tick();
+            try {
+                c->network->tick();
+            } catch (const std::exception& e) {
+                c->output_buf.write_str("\r\n[Connection lost]\r\n");
+                c->state.store(MOSH_DISCONNECTED, std::memory_order_relaxed);
+                return nullptr;
+            }
 
             // Update RTT
             double srtt = c->network->get_SRTT();
@@ -251,7 +257,13 @@ static void* mosh_network_thread(void* arg) {
                 }
             }
             if (network_ready) {
-                c->network->recv();
+                try {
+                    c->network->recv();
+                } catch (const std::exception& e) {
+                    c->output_buf.write_str("\r\n[Connection lost]\r\n");
+                    c->state.store(MOSH_DISCONNECTED, std::memory_order_relaxed);
+                    return nullptr;
+                }
             }
 
             // Check for shutdown

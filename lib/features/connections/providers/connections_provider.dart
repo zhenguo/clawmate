@@ -4,6 +4,7 @@ import 'package:uuid/uuid.dart';
 
 import '../models/connection_profile.dart';
 import '../../../core/storage/secure_storage_service.dart';
+import '../../../core/widgets/widget_data_service.dart';
 
 const _storageKey = 'connections';
 const _uuid = Uuid();
@@ -26,6 +27,7 @@ class ConnectionsNotifier extends AsyncNotifier<List<ConnectionProfile>> {
       _storageKey,
       list.map((c) => c.encode()).toList(),
     );
+    WidgetDataService().updateConnections(list);
   }
 
   Future<ConnectionProfile> add({

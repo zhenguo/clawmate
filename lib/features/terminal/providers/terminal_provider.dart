@@ -9,6 +9,7 @@ import 'package:xterm/xterm.dart';
 import '../../../core/ssh/ssh_service.dart';
 import '../../../core/mosh/mosh_service.dart';
 import '../../../core/storage/secure_storage_service.dart';
+import '../../../core/widgets/widget_data_service.dart';
 import '../../connections/models/connection_profile.dart';
 
 final terminalProvider = Provider.autoDispose
@@ -25,9 +26,12 @@ class TerminalSession {
   MoshService? _mosh;
   SshService? _helperSsh;
   bool _ctrlPressed = false;
+  String? _lastTmuxSession;
 
   final StringBuffer _outputBuffer = StringBuffer();
   Timer? _flushTimer;
+  Timer? _widgetPreviewTimer;
+  Timer? _serverStatsTimer;
   StreamSubscription? _transportStateSub;
 
   final _connectionStateController = StreamController<SshConnectionState>.broadcast();
@@ -37,6 +41,7 @@ class TerminalSession {
 
   bool get ctrlPressed => _ctrlPressed;
   bool get _isMosh => profile.transportType == TransportType.mosh;
+  String? get lastTmuxSession => _lastTmuxSession;
 
   bool get isConnected {
     if (_isMosh) return _mosh?.state == MoshConnectionState.connected;
@@ -86,7 +91,9 @@ class TerminalSession {
     }
   }
 
-  Future<void> connect() async {
+  Future<void> connect({
+    void Function(String message)? onProgress,
+  }) async {
     final label = _isMosh ? 'Mosh' : 'SSH';
     terminal.write('Connecting via $label to ${profile.host}:${profile.port}...\r\n');
     final password = await SecureStorageService.getPassword(profile.id);
@@ -96,7 +103,7 @@ class TerminalSession {
     }
 
     if (_isMosh) {
-      await _connectMosh(password);
+      await _connectMosh(password, onProgress: onProgress);
     } else {
       await _connectSsh(password);
     }
@@ -121,6 +128,7 @@ class TerminalSession {
         ssh.addBytesIn(data.length);
         _bufferOutput(utf8.decode(data, allowMalformed: true));
       });
+      _startWidgetTimers();
     } on SSHAuthFailError {
       terminal.write('Authentication failed. Please check your password.\r\n');
     } catch (e) {
@@ -128,7 +136,9 @@ class TerminalSession {
     }
   }
 
-  Future<void> _connectMosh(String password) async {
+  Future<void> _connectMosh(String password, {
+    void Function(String message)? onProgress,
+  }) async {
     try {
       _mosh = MoshService();
       _transportStateSub?.cancel();
@@ -147,8 +157,10 @@ class TerminalSession {
         onProgress: (step, total, message) {
           final bar = '[${'=' * step}${' ' * (total - step)}]';
           terminal.write('\r\x1b[K  $bar $message\r\n');
+          onProgress?.call(message);
         },
       );
+      _startWidgetTimers();
     } catch (e) {
       terminal.write('\r\x1b[31mMosh connection failed: $e\x1b[0m\r\n');
     }
@@ -182,6 +194,62 @@ class TerminalSession {
     if (scrollBackLines.length > _maxScrollBackLines) {
       scrollBackLines.removeRange(0, scrollBackLines.length - _maxScrollBackLines);
     }
+  }
+
+  void _startWidgetTimers() {
+    _widgetPreviewTimer?.cancel();
+    _widgetPreviewTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (!isConnected || scrollBackLines.isEmpty) return;
+      WidgetDataService().updateTerminalPreview(
+        profile.id,
+        profile.name,
+        scrollBackLines,
+      );
+    });
+    _serverStatsTimer?.cancel();
+    _serverStatsTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (!isConnected) return;
+      _collectServerStats();
+    });
+  }
+
+  void _stopWidgetTimers() {
+    _widgetPreviewTimer?.cancel();
+    _widgetPreviewTimer = null;
+    _serverStatsTimer?.cancel();
+    _serverStatsTimer = null;
+    WidgetDataService().clearActiveSession();
+  }
+
+  Future<void> _collectServerStats() async {
+    try {
+      final output = await _runCommand(
+        r"top -bn1 2>/dev/null | grep '%Cpu' | head -1; free -m 2>/dev/null | grep 'Mem:' | head -1",
+      );
+      double cpu = 0;
+      double mem = 0;
+      for (final line in output.split('\n')) {
+        if (line.contains('%Cpu') || line.contains('Cpu(s)')) {
+          final idle = RegExp(r'(\d+\.?\d*)\s*(id|idle)').firstMatch(line);
+          if (idle != null) {
+            cpu = 100.0 - (double.tryParse(idle.group(1)!) ?? 0);
+          }
+        } else if (line.contains('Mem:')) {
+          final parts = line.trim().split(RegExp(r'\s+'));
+          if (parts.length >= 3) {
+            final total = double.tryParse(parts[1]) ?? 1;
+            final used = double.tryParse(parts[2]) ?? 0;
+            mem = total > 0 ? (used / total * 100) : 0;
+          }
+        }
+      }
+      WidgetDataService().updateServerStats(
+        profile.id,
+        profile.host,
+        cpuPercent: cpu,
+        memPercent: mem,
+      );
+    } catch (_) {}
   }
 
   void _write(String data) {
@@ -274,6 +342,7 @@ class TerminalSession {
   }
 
   void attachTmuxSession(String sessionName) {
+    _lastTmuxSession = sessionName;
     detachAndRun(
         'export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8; tmux set -g mouse on 2>/dev/null; tmux -u attach-session -t $sessionName\n');
   }
@@ -345,22 +414,34 @@ class TerminalSession {
   void resetTransport() {
     _transportStateSub?.cancel();
     if (_isMosh) {
-      _mosh?.dispose();
+      try { _mosh?.dispose(); } catch (_) {}
       _mosh = null;
-      _helperSsh?.dispose();
+      try { _helperSsh?.dispose(); } catch (_) {}
       _helperSsh = null;
     } else {
-      ssh.dispose();
+      try { ssh.dispose(); } catch (_) {}
       ssh = SshService();
       _transportStateSub = ssh.stateStream.listen(
           (s) => _connectionStateController.add(s));
     }
   }
 
-  Future<void> reconnect() async {
+  Future<void> reconnect({
+    void Function(String message)? onProgress,
+  }) async {
+    final previousTmux = _lastTmuxSession;
     resetTransport();
-    terminal.write('\r\nReconnecting...\r\n');
-    await connect();
+    onProgress?.call('Initializing...');
+    await connect(onProgress: onProgress);
+    if (isConnected && previousTmux != null) {
+      onProgress?.call('Re-attaching tmux: $previousTmux...');
+      await Future.delayed(const Duration(milliseconds: 800));
+      final sessions = await listTmuxSessions();
+      if (sessions.contains(previousTmux)) {
+        _lastTmuxSession = previousTmux;
+        _write('export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8; tmux set -g mouse on 2>/dev/null; tmux -u attach-session -t $previousTmux\n');
+      }
+    }
   }
 
   void disconnect() {
@@ -373,6 +454,7 @@ class TerminalSession {
 
   void dispose() {
     _flushTimer?.cancel();
+    _stopWidgetTimers();
     _transportStateSub?.cancel();
     _connectionStateController.close();
     ssh.dispose();

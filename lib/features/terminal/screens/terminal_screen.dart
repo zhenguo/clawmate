@@ -24,6 +24,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   Timer? _speedTimer;
   Timer? _reconnectTimer;
   Timer? _pingTimer;
+  Timer? _healthTimer;
   String _speedText = '';
   int _latencyMs = -1;
   int _reconnectAttempts = 0;
@@ -50,14 +51,24 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     _pingTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       _measureLatency();
     });
+    _healthTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+      if (!mounted || !_wasConnected || _autoReconnecting || _dialogShowing) return;
+      final cs = _session.connectionState;
+      if (cs == SshConnectionState.disconnected ||
+          cs == SshConnectionState.error) {
+        _startAutoReconnect();
+      }
+    });
     _stateSub = _session.connectionStateStream.listen((state) {
       if (state == SshConnectionState.connected) {
         _wasConnected = true;
         _reconnectAttempts = 0;
         _autoReconnecting = false;
         _reconnectTimer?.cancel();
+        if (mounted) setState(() {});
       }
-      if (state == SshConnectionState.disconnected &&
+      if ((state == SshConnectionState.disconnected ||
+              state == SshConnectionState.error) &&
           _wasConnected &&
           mounted &&
           !_dialogShowing) {
@@ -68,40 +79,72 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && mounted) {
-      if (_session.connectionState == SshConnectionState.disconnected && _wasConnected) {
+    if (state == AppLifecycleState.resumed && mounted && _wasConnected) {
+      final cs = _session.connectionState;
+      if (cs == SshConnectionState.disconnected ||
+          cs == SshConnectionState.error) {
         _startAutoReconnect();
+      } else {
+        // Socket error may not have propagated yet — check again shortly
+        Future.delayed(const Duration(seconds: 1), () {
+          if (!mounted || !_wasConnected || _autoReconnecting) return;
+          final delayed = _session.connectionState;
+          if (delayed == SshConnectionState.disconnected ||
+              delayed == SshConnectionState.error) {
+            _startAutoReconnect();
+          }
+        });
       }
     }
   }
 
   void _startAutoReconnect() {
-    if (_autoReconnecting) return;
+    if (_autoReconnecting || _dialogShowing) return;
     _autoReconnecting = true;
+    _dialogShowing = true;
     _reconnectAttempts = 0;
-    _session.terminal.write('\r\nConnection lost. Auto-reconnecting...\r\n');
-    _tryReconnect();
+    _showReconnectDialog();
   }
 
-  void _tryReconnect() {
-    if (!mounted || !_autoReconnecting) return;
-    _reconnectAttempts++;
-    if (_reconnectAttempts > _maxReconnectAttempts) {
-      _autoReconnecting = false;
-      _session.terminal.write('\r\nAuto-reconnect failed after $_maxReconnectAttempts attempts.\r\n');
-      _showDisconnectedDialog();
-      return;
-    }
-    final delay = _reconnectAttempts <= 3 ? 2 : 5;
-    _session.terminal.write('Attempt $_reconnectAttempts/$_maxReconnectAttempts in ${delay}s...\r\n');
-    _reconnectTimer?.cancel();
-    _reconnectTimer = Timer(Duration(seconds: delay), () async {
-      if (!mounted || !_autoReconnecting) return;
-      await _session.reconnect();
-      if (_session.connectionState != SshConnectionState.connected) {
-        _tryReconnect();
-      }
-    });
+  void _showReconnectDialog() {
+    if (!mounted) return;
+    final isMosh = widget.profile.transportType == TransportType.mosh;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => _ReconnectDialog(
+        isMosh: isMosh,
+        maxAttempts: _maxReconnectAttempts,
+        onReconnectAttempt: (attempt, setStatus) async {
+          try {
+            await _session.reconnect(
+              onProgress: (msg) => setStatus(msg),
+            );
+          } catch (_) {}
+          return _session.connectionState == SshConnectionState.connected;
+        },
+        onConnected: () {
+          _wasConnected = true;
+          _autoReconnecting = false;
+          _dialogShowing = false;
+          _reconnectAttempts = 0;
+          Navigator.pop(ctx);
+        },
+        onClose: () {
+          _autoReconnecting = false;
+          _dialogShowing = false;
+          Navigator.pop(ctx);
+          Navigator.pop(context);
+        },
+        onRetry: () {
+          Navigator.pop(ctx);
+          _dialogShowing = false;
+          _autoReconnecting = false;
+          _startAutoReconnect();
+        },
+      ),
+    );
   }
 
   Future<void> _connectAndDetectTmux() async {
@@ -112,6 +155,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       setState(() => _initialConnectFailed = true);
       return;
     }
+    _wasConnected = true;
     _showTmuxSessionSheet();
   }
 
@@ -148,6 +192,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     WidgetsBinding.instance.removeObserver(this);
     _speedTimer?.cancel();
     _pingTimer?.cancel();
+    _healthTimer?.cancel();
     _reconnectTimer?.cancel();
     _stateSub?.cancel();
     super.dispose();
@@ -171,40 +216,6 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     if (bytesPerSec < 1024) return '${bytesPerSec}B';
     if (bytesPerSec < 1024 * 1024) return '${(bytesPerSec / 1024).toStringAsFixed(1)}KB';
     return '${(bytesPerSec / 1024 / 1024).toStringAsFixed(1)}MB';
-  }
-
-  void _showDisconnectedDialog() {
-    if (!mounted || _dialogShowing) return;
-    _autoReconnecting = false;
-    _reconnectTimer?.cancel();
-    _dialogShowing = true;
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Disconnected'),
-        content: const Text('Auto-reconnect failed. SSH connection lost.'),
-        actions: [
-          TextButton(
-            onPressed: () {
-              _dialogShowing = false;
-              Navigator.pop(ctx);
-              Navigator.pop(context);
-            },
-            child: const Text('Close'),
-          ),
-          FilledButton(
-            onPressed: () {
-              _dialogShowing = false;
-              _wasConnected = false;
-              Navigator.pop(ctx);
-              _connectAndDetectTmux();
-            },
-            child: const Text('Reconnect'),
-          ),
-        ],
-      ),
-    );
   }
 
   @override
@@ -293,6 +304,236 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
           ],
         ),
       ),
+    );
+  }
+}
+
+enum _ReconnectPhase { reconnecting, connected, failed }
+
+class _ReconnectDialog extends StatefulWidget {
+  final bool isMosh;
+  final int maxAttempts;
+  final Future<bool> Function(int attempt, void Function(String) setStatus) onReconnectAttempt;
+  final VoidCallback onConnected;
+  final VoidCallback onClose;
+  final VoidCallback onRetry;
+
+  const _ReconnectDialog({
+    required this.isMosh,
+    required this.maxAttempts,
+    required this.onReconnectAttempt,
+    required this.onConnected,
+    required this.onClose,
+    required this.onRetry,
+  });
+
+  @override
+  State<_ReconnectDialog> createState() => _ReconnectDialogState();
+}
+
+class _ReconnectDialogState extends State<_ReconnectDialog> {
+  _ReconnectPhase _phase = _ReconnectPhase.reconnecting;
+  int _currentAttempt = 0;
+  String _statusMessage = 'Initializing...';
+  int _countdown = 0;
+  Timer? _countdownTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _runReconnectLoop();
+  }
+
+  @override
+  void dispose() {
+    _countdownTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _runReconnectLoop() async {
+    for (int i = 1; i <= widget.maxAttempts; i++) {
+      if (!mounted) return;
+      setState(() {
+        _currentAttempt = i;
+        _statusMessage = 'Connecting...';
+      });
+
+      final success = await widget.onReconnectAttempt(i, (msg) {
+        if (mounted) setState(() => _statusMessage = msg);
+      });
+
+      if (!mounted) return;
+
+      if (success) {
+        setState(() => _phase = _ReconnectPhase.connected);
+        await Future.delayed(const Duration(milliseconds: 1200));
+        if (mounted) widget.onConnected();
+        return;
+      }
+
+      if (i < widget.maxAttempts) {
+        final delay = i <= 3 ? 2 : 5;
+        _countdown = delay;
+        setState(() => _statusMessage = 'Connection failed');
+        _countdownTimer?.cancel();
+        _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+          if (!mounted) return;
+          _countdown--;
+          if (_countdown <= 0) {
+            _countdownTimer?.cancel();
+          }
+          setState(() {});
+        });
+        await Future.delayed(Duration(seconds: delay));
+      }
+    }
+
+    if (mounted) {
+      setState(() => _phase = _ReconnectPhase.failed);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.grey[900],
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: switch (_phase) {
+          _ReconnectPhase.reconnecting => _buildReconnecting(),
+          _ReconnectPhase.connected => _buildConnected(),
+          _ReconnectPhase.failed => _buildFailed(),
+        },
+      ),
+    );
+  }
+
+  Widget _buildReconnecting() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          'Reconnecting...',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
+        ),
+        const SizedBox(height: 24),
+        SizedBox(
+          width: 48,
+          height: 48,
+          child: CircularProgressIndicator(
+            strokeWidth: 3,
+            color: Colors.blueAccent,
+          ),
+        ),
+        const SizedBox(height: 20),
+        Text(
+          'Attempt $_currentAttempt / ${widget.maxAttempts}',
+          style: TextStyle(
+            fontSize: 14,
+            color: Colors.grey[400],
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          _statusMessage,
+          style: TextStyle(fontSize: 13, color: Colors.grey[500]),
+          textAlign: TextAlign.center,
+        ),
+        if (_countdown > 0) ...[
+          const SizedBox(height: 12),
+          Text(
+            'Next retry in ${_countdown}s',
+            style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildConnected() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(Icons.check_circle, color: Colors.greenAccent, size: 56),
+        const SizedBox(height: 16),
+        Text(
+          'Connected!',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: Colors.greenAccent,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFailed() {
+    final transport = widget.isMosh ? 'Mosh' : 'SSH';
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 28),
+            const SizedBox(width: 8),
+            Text(
+              '$transport Connection Lost',
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Text(
+          'Auto-reconnect failed (${widget.maxAttempts}/${widget.maxAttempts})',
+          style: TextStyle(fontSize: 13, color: Colors.grey[400]),
+        ),
+        const SizedBox(height: 16),
+        Text(
+          'Please check:',
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.bold,
+            color: Colors.grey[300],
+          ),
+        ),
+        const SizedBox(height: 8),
+        _checkItem('1. WiFi or cellular is enabled'),
+        _checkItem('2. Server is reachable'),
+        if (widget.isMosh) _checkItem('3. UDP ports 60000-61000 are open'),
+        const SizedBox(height: 20),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            TextButton(
+              onPressed: widget.onClose,
+              child: Text('Close', style: TextStyle(color: Colors.grey[400])),
+            ),
+            const SizedBox(width: 8),
+            FilledButton(
+              onPressed: widget.onRetry,
+              child: const Text('Reconnect'),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _checkItem(String text) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 4, bottom: 4),
+      child: Text(text, style: TextStyle(fontSize: 13, color: Colors.grey[400])),
     );
   }
 }

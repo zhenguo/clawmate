@@ -3,17 +3,59 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/network/tailscale_checker.dart';
 import '../providers/connections_provider.dart';
 import '../providers/discovery_provider.dart';
 import '../models/connection_profile.dart';
 import 'connection_form_screen.dart';
 import '../../terminal/screens/terminal_screen.dart';
 
-class ConnectionsListScreen extends ConsumerWidget {
+class ConnectionsListScreen extends ConsumerStatefulWidget {
   const ConnectionsListScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<ConnectionsListScreen> createState() =>
+      _ConnectionsListScreenState();
+}
+
+class _ConnectionsListScreenState extends ConsumerState<ConnectionsListScreen>
+    with WidgetsBindingObserver {
+  bool? _tailscaleConnected;
+  bool _tailscaleInstalled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _checkTailscale();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkTailscale();
+    }
+  }
+
+  Future<void> _checkTailscale() async {
+    final connected = await TailscaleChecker.isConnected();
+    final installed = await TailscaleChecker.canOpenTailscale();
+    if (mounted) {
+      setState(() {
+        _tailscaleConnected = connected;
+        _tailscaleInstalled = installed;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final connectionsAsync = ref.watch(connectionsProvider);
 
     return Scaffold(
@@ -31,45 +73,57 @@ class ConnectionsListScreen extends ConsumerWidget {
           ),
         ],
       ),
-      body: connectionsAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('Error: $e')),
-        data: (connections) {
-          if (connections.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.terminal, size: 64, color: Colors.grey[400]),
-                  const SizedBox(height: 16),
-                  Text(
-                    'No connections yet',
-                    style: TextStyle(fontSize: 18, color: Colors.grey[600]),
-                  ),
-                  const SizedBox(height: 8),
-                  TextButton.icon(
-                    onPressed: () => _openForm(context),
-                    icon: const Icon(Icons.add),
-                    label: const Text('Add Connection'),
-                  ),
-                  const SizedBox(height: 8),
-                  TextButton.icon(
-                    onPressed: () => _showScanSheet(context, ref),
-                    icon: const Icon(Icons.radar),
-                    label: const Text('Scan Network'),
-                  ),
-                ],
-              ),
-            );
-          }
-          return ListView.builder(
-            itemCount: connections.length,
-            itemBuilder: (context, index) {
-              final conn = connections[index];
-              return _ConnectionTile(profile: conn);
-            },
-          );
-        },
+      body: Column(
+        children: [
+          if (_tailscaleConnected != null) _TailscaleBanner(
+            connected: _tailscaleConnected!,
+            installed: _tailscaleInstalled,
+            onRefresh: _checkTailscale,
+          ),
+          Expanded(
+            child: connectionsAsync.when(
+              loading: () => const Center(child: CircularProgressIndicator()),
+              error: (e, _) => Center(child: Text('Error: $e')),
+              data: (connections) {
+                if (connections.isEmpty) {
+                  return Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.terminal, size: 64, color: Colors.grey[400]),
+                        const SizedBox(height: 16),
+                        Text(
+                          'No connections yet',
+                          style:
+                              TextStyle(fontSize: 18, color: Colors.grey[600]),
+                        ),
+                        const SizedBox(height: 8),
+                        TextButton.icon(
+                          onPressed: () => _openForm(context),
+                          icon: const Icon(Icons.add),
+                          label: const Text('Add Connection'),
+                        ),
+                        const SizedBox(height: 8),
+                        TextButton.icon(
+                          onPressed: () => _showScanSheet(context, ref),
+                          icon: const Icon(Icons.radar),
+                          label: const Text('Scan Network'),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+                return ListView.builder(
+                  itemCount: connections.length,
+                  itemBuilder: (context, index) {
+                    final conn = connections[index];
+                    return _ConnectionTile(profile: conn);
+                  },
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -98,6 +152,72 @@ class ConnectionsListScreen extends ConsumerWidget {
           _openForm(context,
               name: device.name, host: reachableHost, port: device.port);
         },
+      ),
+    );
+  }
+}
+
+class _TailscaleBanner extends StatelessWidget {
+  final bool connected;
+  final bool installed;
+  final VoidCallback onRefresh;
+
+  const _TailscaleBanner({
+    required this.connected,
+    required this.installed,
+    required this.onRefresh,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      color: connected ? Colors.green.withValues(alpha: 0.1) : Colors.orange.withValues(alpha: 0.1),
+      child: Row(
+        children: [
+          Icon(
+            connected ? Icons.vpn_lock : Icons.vpn_lock_outlined,
+            size: 18,
+            color: connected ? Colors.green : Colors.orange,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              connected ? 'Tailscale Connected' : 'Tailscale Not Connected',
+              style: TextStyle(
+                fontSize: 13,
+                color: connected ? Colors.green : Colors.orange,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+          if (!connected && installed)
+            TextButton.icon(
+              onPressed: () async {
+                await TailscaleChecker.openTailscale();
+              },
+              icon: const Icon(Icons.open_in_new, size: 16),
+              label: const Text('Open'),
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.orange,
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+            )
+          else if (!connected && !installed)
+            Text(
+              'Not Installed',
+              style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+            ),
+          IconButton(
+            onPressed: onRefresh,
+            icon: const Icon(Icons.refresh, size: 16),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+            color: Colors.grey[500],
+          ),
+        ],
       ),
     );
   }
