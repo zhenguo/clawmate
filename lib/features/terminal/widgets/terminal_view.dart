@@ -18,6 +18,16 @@ class _NeverScrollBehavior extends ScrollBehavior {
   }
 }
 
+class _ScrollDbg {
+  static int downs = 0;
+  static int moves = 0;
+  static int steps = 0;
+  static double lastDy = 0;
+  static String mode = '-';
+  static String handled = '-';
+  static String path = '-';
+}
+
 class TerminalView extends StatefulWidget {
   final TerminalSession session;
 
@@ -36,7 +46,7 @@ class _TerminalViewState extends State<TerminalView>
   double _scrollAccum = 0;
   Offset? _pointerDownPos;
   bool _userScrolledUp = false;
-  static const _scrollStep = 60.0;
+  static const _scrollStep = 20.0;
   static const _tapSlop = 12.0;
 
   @override
@@ -100,11 +110,14 @@ class _TerminalViewState extends State<TerminalView>
     if (event.kind == PointerDeviceKind.touch) {
       _pointerDownPos = event.position;
       _scrollAccum = 0;
+      _ScrollDbg.downs++;
     }
   }
 
   void _handlePointerMove(PointerMoveEvent event) {
     if (event.kind != PointerDeviceKind.touch) return;
+    _ScrollDbg.moves++;
+    _ScrollDbg.lastDy = event.delta.dy;
     _scrollAccum += event.delta.dy;
     while (_scrollAccum.abs() >= _scrollStep) {
       final up = _scrollAccum > 0;
@@ -128,18 +141,20 @@ class _TerminalViewState extends State<TerminalView>
 
   void _scrollOneStep(bool up) {
     final terminal = widget.session.terminal;
-    // When the remote app has mouse reporting on (tmux/vim with `mouse on`),
-    // forward the wheel so it scrolls its own history / copy-mode. tmux here
-    // runs in the main screen (alt=false), so xterm has no local scrollback —
-    // only tmux holds the history.
+    _ScrollDbg.steps++;
+    _ScrollDbg.mode = terminal.mouseMode.toString();
     if (terminal.mouseMode != xterm.MouseMode.none) {
-      final handled = terminal.mouseInput(
-        up ? xterm.TerminalMouseButton.wheelUp : xterm.TerminalMouseButton.wheelDown,
-        xterm.TerminalMouseButtonState.down,
-        xterm.CellOffset(0, 0),
-      );
-      if (handled) return;
+      // xterm 4.0.0 encodes wheel buttons as 64+4/64+5 (=68/69) instead of the
+      // SGR-correct 64/65, so tmux ignores its reports. Emit the SGR wheel
+      // report directly: ESC[<64;1;1M (up) / ESC[<65;1;1M (down).
+      final code = up ? 64 : 65;
+      widget.session.sendKey('\x1b[<$code;1;1M');
+      _ScrollDbg.handled = 'sgr';
+      _ScrollDbg.path = 'wheel>tmux';
+      return;
     }
+    _ScrollDbg.path = 'normal';
+    _ScrollDbg.handled = 'n/a';
     _scrollNormalBuffer(up);
   }
 
@@ -284,16 +299,32 @@ class _DebugBarState extends State<_DebugBar> {
     }
 
     return Container(
-      height: 20,
+      height: 40,
       color: Colors.red[900],
       padding: const EdgeInsets.symmetric(horizontal: 6),
-      child: FittedBox(
-        fit: BoxFit.scaleDown,
-        alignment: Alignment.centerLeft,
-        child: Text(
-          'alt=$alt lines=$lines vh=$vh vw=$vw mouse=$mouse $scrollInfo',
-          style: const TextStyle(color: Colors.white, fontSize: 10),
-        ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              'alt=$alt lines=$lines vh=$vh vw=$vw mouse=$mouse $scrollInfo',
+              style: const TextStyle(color: Colors.white, fontSize: 9),
+            ),
+          ),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              'dn=${_ScrollDbg.downs} mv=${_ScrollDbg.moves} st=${_ScrollDbg.steps} '
+              'dy=${_ScrollDbg.lastDy.toStringAsFixed(1)} '
+              'mode=${_ScrollDbg.mode} hdl=${_ScrollDbg.handled} path=${_ScrollDbg.path}',
+              style: const TextStyle(color: Colors.yellowAccent, fontSize: 9),
+            ),
+          ),
+        ],
       ),
     );
   }
