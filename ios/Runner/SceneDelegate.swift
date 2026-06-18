@@ -17,6 +17,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
       WidgetDataBridge.register(with: registrar)
     }
     registerLauncherChannel()
+    registerClipboardChannel()
     let vc = FlutterViewController(engine: flutterEngine, nibName: nil, bundle: nil)
     let newWindow = UIWindow(windowScene: windowScene)
     newWindow.rootViewController = vc
@@ -42,6 +43,41 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         UIApplication.shared.open(url, options: [:]) { success in
           result(success)
         }
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
+  }
+
+  private func registerClipboardChannel() {
+    let channel = FlutterMethodChannel(
+      name: "com.clawmate.clipboard",
+      binaryMessenger: flutterEngine.binaryMessenger
+    )
+    channel.setMethodCallHandler { (call, result) in
+      switch call.method {
+      case "hasImage":
+        result(UIPasteboard.general.hasImages)
+      case "getImageBase64":
+        guard let image = UIPasteboard.general.image else {
+          result(nil)
+          return
+        }
+        if let png = image.pngData() {
+          result([
+            "format": "png",
+            "data": png.base64EncodedString(),
+          ])
+          return
+        }
+        if let jpg = image.jpegData(compressionQuality: 0.9) {
+          result([
+            "format": "jpg",
+            "data": jpg.base64EncodedString(),
+          ])
+          return
+        }
+        result(nil)
       default:
         result(FlutterMethodNotImplemented)
       }

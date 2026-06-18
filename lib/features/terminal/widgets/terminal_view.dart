@@ -9,6 +9,15 @@ import 'package:xterm/xterm.dart' as xterm;
 import '../providers/terminal_provider.dart';
 import '../widgets/keyboard_toolbar.dart';
 
+class _NeverScrollBehavior extends ScrollBehavior {
+  const _NeverScrollBehavior();
+
+  @override
+  ScrollPhysics getScrollPhysics(BuildContext context) {
+    return const NeverScrollableScrollPhysics();
+  }
+}
+
 class TerminalView extends StatefulWidget {
   final TerminalSession session;
 
@@ -24,9 +33,10 @@ class _TerminalViewState extends State<TerminalView>
   final _scrollController = ScrollController();
   final _focusNode = FocusNode();
   bool _intentionalFocus = false;
-  double _altScrollAccum = 0;
+  double _scrollAccum = 0;
   Offset? _pointerDownPos;
-  static const _altScrollStep = 20.0;
+  bool _userScrolledUp = false;
+  static const _scrollStep = 60.0;
   static const _tapSlop = 12.0;
 
   @override
@@ -34,6 +44,18 @@ class _TerminalViewState extends State<TerminalView>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _focusNode.addListener(_onFocusChange);
+    widget.session.terminal.addListener(_onTerminalChange);
+  }
+
+  void _onTerminalChange() {
+    if (_userScrolledUp) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scrollController.hasClients) return;
+      final max = _scrollController.position.maxScrollExtent;
+      if (max > 0) {
+        _scrollController.jumpTo(max);
+      }
+    });
   }
 
   void _onFocusChange() {
@@ -48,6 +70,7 @@ class _TerminalViewState extends State<TerminalView>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _focusNode.removeListener(_onFocusChange);
+    widget.session.terminal.removeListener(_onTerminalChange);
     _scrollController.dispose();
     _focusNode.dispose();
     super.dispose();
@@ -73,29 +96,51 @@ class _TerminalViewState extends State<TerminalView>
     _focusNode.unfocus();
   }
 
-  bool get _isAltBuffer => widget.session.terminal.isUsingAltBuffer;
-
   void _handlePointerDown(PointerDownEvent event) {
     if (event.kind == PointerDeviceKind.touch) {
       _pointerDownPos = event.position;
-      _altScrollAccum = 0;
+      _scrollAccum = 0;
     }
   }
 
   void _handlePointerMove(PointerMoveEvent event) {
     if (event.kind != PointerDeviceKind.touch) return;
-    if (!_isAltBuffer) return;
-
-    _altScrollAccum += event.delta.dy;
-    while (_altScrollAccum.abs() >= _altScrollStep) {
-      if (_altScrollAccum < 0) {
-        widget.session.terminal.keyInput(xterm.TerminalKey.arrowDown);
-        _altScrollAccum += _altScrollStep;
-      } else {
-        widget.session.terminal.keyInput(xterm.TerminalKey.arrowUp);
-        _altScrollAccum -= _altScrollStep;
-      }
+    _scrollAccum += event.delta.dy;
+    while (_scrollAccum.abs() >= _scrollStep) {
+      final up = _scrollAccum > 0;
+      _scrollOneStep(up);
+      _scrollAccum += up ? -_scrollStep : _scrollStep;
     }
+  }
+
+  void _scrollNormalBuffer(bool up) {
+    if (!_scrollController.hasClients) return;
+    final step = _scrollStep * 3.0;
+    final max = _scrollController.position.maxScrollExtent;
+    if (max <= 0) return;
+    final current = _scrollController.offset;
+    final newOffset = up
+        ? (current - step).clamp(0.0, max)
+        : (current + step).clamp(0.0, max);
+    _scrollController.jumpTo(newOffset);
+    _userScrolledUp = newOffset < max - 1.0;
+  }
+
+  void _scrollOneStep(bool up) {
+    final terminal = widget.session.terminal;
+    // When the remote app has mouse reporting on (tmux/vim with `mouse on`),
+    // forward the wheel so it scrolls its own history / copy-mode. tmux here
+    // runs in the main screen (alt=false), so xterm has no local scrollback —
+    // only tmux holds the history.
+    if (terminal.mouseMode != xterm.MouseMode.none) {
+      final handled = terminal.mouseInput(
+        up ? xterm.TerminalMouseButton.wheelUp : xterm.TerminalMouseButton.wheelDown,
+        xterm.TerminalMouseButtonState.down,
+        xterm.CellOffset(0, 0),
+      );
+      if (handled) return;
+    }
+    _scrollNormalBuffer(up);
   }
 
   void _handlePointerUp(PointerUpEvent event) {
@@ -106,19 +151,25 @@ class _TerminalViewState extends State<TerminalView>
       }
     }
     _pointerDownPos = null;
-    _altScrollAccum = 0;
+    _scrollAccum = 0;
   }
 
   @override
   Widget build(BuildContext context) {
     return Column(
       children: [
+        _DebugBar(
+          session: widget.session,
+          scrollController: _scrollController,
+        ),
         Expanded(
           child: Listener(
             onPointerDown: _handlePointerDown,
             onPointerMove: _handlePointerMove,
             onPointerUp: _handlePointerUp,
-            child: xterm.TerminalView(
+            child: ScrollConfiguration(
+              behavior: const _NeverScrollBehavior(),
+              child: xterm.TerminalView(
                 widget.session.terminal,
                 key: _terminalViewKey,
                 scrollController: _scrollController,
@@ -170,6 +221,7 @@ class _TerminalViewState extends State<TerminalView>
               ),
             ),
           ),
+        ),
         _InputBar(
           hasFocus: _focusNode.hasFocus,
           onTap: _showKeyboard,
@@ -181,6 +233,68 @@ class _TerminalViewState extends State<TerminalView>
           onShowKeyboard: _showKeyboard,
         ),
       ],
+    );
+  }
+}
+
+class _DebugBar extends StatefulWidget {
+  final TerminalSession session;
+  final ScrollController scrollController;
+
+  const _DebugBar({
+    required this.session,
+    required this.scrollController,
+  });
+
+  @override
+  State<_DebugBar> createState() => _DebugBarState();
+}
+
+class _DebugBarState extends State<_DebugBar> {
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(milliseconds: 500), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = widget.session.terminal;
+    final alt = t.isUsingAltBuffer;
+    final lines = t.buffer.lines.length;
+    final vh = t.viewHeight;
+    final vw = t.viewWidth;
+    final mouse = t.mouseMode;
+
+    String scrollInfo = 'no clients';
+    if (widget.scrollController.hasClients) {
+      final pos = widget.scrollController.position;
+      scrollInfo = 'off=${pos.pixels.toStringAsFixed(0)}'
+          ' max=${pos.maxScrollExtent.toStringAsFixed(0)}';
+    }
+
+    return Container(
+      height: 20,
+      color: Colors.red[900],
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        alignment: Alignment.centerLeft,
+        child: Text(
+          'alt=$alt lines=$lines vh=$vh vw=$vw mouse=$mouse $scrollInfo',
+          style: const TextStyle(color: Colors.white, fontSize: 10),
+        ),
+      ),
     );
   }
 }
@@ -241,9 +355,57 @@ class _ToolbarWrapper extends StatefulWidget {
 }
 
 class _ToolbarWrapperState extends State<_ToolbarWrapper> {
+  static const _clipboardChannel = MethodChannel('com.clawmate.clipboard');
   final _speech = stt.SpeechToText();
   bool _isListening = false;
   bool _speechAvailable = false;
+
+  Future<void> _pasteImage() async {
+    Map<dynamic, dynamic>? result;
+    try {
+      result = await _clipboardChannel
+          .invokeMapMethod<dynamic, dynamic>('getImageBase64');
+    } catch (_) {
+      result = null;
+    }
+    if (!mounted) return;
+    if (result == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('剪贴板没有图片'),
+          duration: Duration(seconds: 1),
+        ),
+      );
+      return;
+    }
+    final format = (result['format'] as String?) ?? 'png';
+    final data = result['data'] as String?;
+    if (data == null || data.isEmpty) return;
+
+    final lines = StringBuffer();
+    for (var i = 0; i < data.length; i += 76) {
+      final end = (i + 76 < data.length) ? i + 76 : data.length;
+      lines.writeln(data.substring(i, end));
+    }
+
+    final ext = format == 'jpg' ? 'jpg' : 'png';
+    final marker = 'CLAW_EOF_${DateTime.now().microsecondsSinceEpoch}';
+    final cmd =
+        '_CLAW=\$(mktemp /tmp/clawmate_XXXXXX.$ext) && base64 -d > "\$_CLAW" << \'$marker\'\n'
+        '${lines.toString()}'
+        '$marker\n'
+        'echo "image saved: \$_CLAW"\n';
+
+    widget.session.sendKey(cmd);
+
+    final kb = (data.length * 3 / 4 / 1024).toStringAsFixed(1);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('已上传图片 (${kb}KB)'),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
 
   @override
   void initState() {
@@ -316,6 +478,7 @@ class _ToolbarWrapperState extends State<_ToolbarWrapper> {
       onPaste: (text) {
         widget.session.sendKey(text);
       },
+      onPasteImage: _pasteImage,
     );
   }
 }

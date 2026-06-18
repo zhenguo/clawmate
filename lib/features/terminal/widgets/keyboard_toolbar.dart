@@ -7,6 +7,7 @@ class KeyboardToolbar extends StatelessWidget {
   final ValueChanged<String> onKeyTap;
   final VoidCallback? onHideKeyboard;
   final ValueChanged<String>? onPaste;
+  final VoidCallback? onPasteImage;
   final VoidCallback? onCopyTerminal;
   final bool isListening;
   final VoidCallback? onVoiceToggle;
@@ -18,6 +19,7 @@ class KeyboardToolbar extends StatelessWidget {
     required this.onKeyTap,
     this.onHideKeyboard,
     this.onPaste,
+    this.onPasteImage,
     this.onCopyTerminal,
     this.isListening = false,
     this.onVoiceToggle,
@@ -32,11 +34,13 @@ class KeyboardToolbar extends StatelessWidget {
         scrollDirection: Axis.horizontal,
         child: Row(
           children: [
+            _buildKey('Tab', () => onKeyTap('\t')),
             _buildKey('📄', () => onCopyTerminal?.call()),
             _buildKey('Esc', () => onKeyTap('\x1b')),
             _buildKey('/', () => onKeyTap('/')),
             _buildKey('↑', () => onKeyTap('\x1b[A')),
             _buildKey('↓', () => onKeyTap('\x1b[B')),
+            _buildKey('📜', () => onKeyTap('\x02[')),
             _buildKey('⏎', () => onKeyTap('\r')),
             _buildKey('|', () => onKeyTap('|')),
             _buildKey('~', () => onKeyTap('~')),
@@ -47,6 +51,7 @@ class KeyboardToolbar extends StatelessWidget {
                 onPaste?.call(data.text!);
               }
             }),
+            _buildKey('🖼️', () => onPasteImage?.call()),
             _buildVoice(),
             _buildKey('⌨↓', () => onHideKeyboard?.call()),
           ],

@@ -149,6 +149,8 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
   Future<void> _connectAndDetectTmux() async {
     setState(() => _initialConnectFailed = false);
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) return;
     await _session.connect();
     if (!mounted) return;
     if (!_session.isConnected) {

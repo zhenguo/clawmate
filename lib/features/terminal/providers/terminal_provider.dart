@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:dartssh2/dartssh2.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:xterm/xterm.dart';
 
@@ -27,6 +28,7 @@ class TerminalSession {
   SshService? _helperSsh;
   bool _ctrlPressed = false;
   String? _lastTmuxSession;
+  final ValueNotifier<bool> inTmuxSession = ValueNotifier(false);
 
   final StringBuffer _outputBuffer = StringBuffer();
   Timer? _flushTimer;
@@ -35,6 +37,9 @@ class TerminalSession {
   StreamSubscription? _transportStateSub;
 
   final _connectionStateController = StreamController<SshConnectionState>.broadcast();
+  final _outputController = StreamController<void>.broadcast();
+
+  Stream<void> get outputStream => _outputController.stream;
 
   final List<String> scrollBackLines = [];
   static const _maxScrollBackLines = 5000;
@@ -75,7 +80,7 @@ class TerminalSession {
   }
 
   TerminalSession(this.profile)
-      : terminal = Terminal(maxLines: 10000),
+      : terminal = Terminal(maxLines: 100000),
         ssh = SshService() {
     terminal.onOutput = _onTerminalOutput;
     terminal.onResize = (width, height, _, _) {
@@ -128,6 +133,10 @@ class TerminalSession {
         ssh.addBytesIn(data.length);
         _bufferOutput(utf8.decode(data, allowMalformed: true));
       });
+      // Layout's onResize may have fired before the channel was open and
+      // become a no-op. Resend the current dimensions so the remote PTY
+      // matches the visible viewport.
+      ssh.resizeTerminal(terminal.viewWidth, terminal.viewHeight);
       _startWidgetTimers();
     } on SSHAuthFailError {
       terminal.write('Authentication failed. Please check your password.\r\n');
@@ -160,6 +169,10 @@ class TerminalSession {
           onProgress?.call(message);
         },
       );
+      // Layout's onResize may have fired before the mosh client was created
+      // and become a no-op. Resend the current dimensions so the remote PTY
+      // matches the visible viewport.
+      _mosh!.resizeTerminal(terminal.viewWidth, terminal.viewHeight);
       _startWidgetTimers();
     } catch (e) {
       terminal.write('\r\x1b[31mMosh connection failed: $e\x1b[0m\r\n');
@@ -178,6 +191,7 @@ class TerminalSession {
       _outputBuffer.clear();
       terminal.write(text);
       _captureScrollBack();
+      _outputController.add(null);
     }
   }
 
@@ -330,21 +344,23 @@ class TerminalSession {
   }
 
   void detachAndRun(String command) {
+    inTmuxSession.value = false;
     resizeTerminal(terminal.viewWidth, terminal.viewHeight);
     _write('\x02d');
-    Future.delayed(const Duration(milliseconds: 500), () {
-      terminal.write('\x1b[2J\x1b[H');
+    Future.delayed(const Duration(milliseconds: 800), () {
       _write(command);
-      Future.delayed(const Duration(milliseconds: 800), () {
-        _write('\x0c');
-      });
+      inTmuxSession.value = true;
     });
   }
 
-  void attachTmuxSession(String sessionName) {
+  Future<void> attachTmuxSession(String sessionName) async {
     _lastTmuxSession = sessionName;
-    detachAndRun(
-        'export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8; tmux set -g mouse on 2>/dev/null; tmux -u attach-session -t $sessionName\n');
+    inTmuxSession.value = false;
+    resizeTerminal(terminal.viewWidth, terminal.viewHeight);
+    _write('\x02d');
+    await Future.delayed(const Duration(milliseconds: 800));
+    _write('export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8; tmux set -g mouse on 2>/dev/null; tmux -u attach-session -t $sessionName\n');
+    inTmuxSession.value = true;
   }
 
   Future<void> killTmuxSession(String sessionName) async {
@@ -457,6 +473,8 @@ class TerminalSession {
     _stopWidgetTimers();
     _transportStateSub?.cancel();
     _connectionStateController.close();
+    _outputController.close();
+    inTmuxSession.dispose();
     ssh.dispose();
     _mosh?.dispose();
     _helperSsh?.dispose();
