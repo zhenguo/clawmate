@@ -343,6 +343,20 @@ class TerminalSession {
     }
   }
 
+  Future<String> captureTmuxScrollback({int lines = 10000}) async {
+    final session = _lastTmuxSession;
+    if (session == null || !isConnected) return '';
+    if (!RegExp(r'^[a-zA-Z0-9_.-]+$').hasMatch(session)) return '';
+    try {
+      return await _runCommand(
+        'export PATH="/opt/homebrew/bin:/usr/local/bin:\$PATH" && '
+        'tmux capture-pane -t $session -e -p -S -$lines 2>/dev/null',
+      );
+    } catch (_) {
+      return '';
+    }
+  }
+
   void detachAndRun(String command) {
     inTmuxSession.value = false;
     resizeTerminal(terminal.viewWidth, terminal.viewHeight);

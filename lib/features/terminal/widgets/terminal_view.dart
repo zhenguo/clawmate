@@ -46,8 +46,60 @@ class _TerminalViewState extends State<TerminalView>
   double _scrollAccum = 0;
   Offset? _pointerDownPos;
   bool _userScrolledUp = false;
-  static const _scrollStep = 20.0;
+  static const _scrollStep = 18.0;
   static const _tapSlop = 12.0;
+  bool _wheelInFlight = false;
+  Timer? _wheelTimeout;
+
+  bool _historyMode = false;
+  bool _historyLoading = false;
+  bool _prefetching = false;
+  xterm.Terminal? _historyTerminal;
+  DateTime? _historyCapturedAt;
+  Future<void>? _prefetchOp;
+  final _historyScrollController = ScrollController();
+
+  static const _kTermStyle = xterm.TerminalStyle(
+    fontSize: 12,
+    fontFamily: 'Menlo',
+    fontFamilyFallback: [
+      'Menlo',
+      'Courier New',
+      'PingFang SC',
+      'PingFang TC',
+      'PingFang HK',
+      'Heiti SC',
+      'Apple Color Emoji',
+      'Apple Symbols',
+      'monospace',
+      'sans-serif',
+    ],
+  );
+  static final _kTermTheme = xterm.TerminalTheme(
+    cursor: Colors.white,
+    selection: Colors.white24,
+    foreground: Colors.white,
+    background: Colors.black,
+    black: Colors.black,
+    white: Colors.white,
+    red: Colors.red,
+    green: Colors.green,
+    yellow: Colors.yellow,
+    blue: Colors.blue,
+    magenta: const Color(0xFFFF00FF),
+    cyan: Colors.cyan,
+    brightBlack: Colors.grey,
+    brightRed: Colors.redAccent,
+    brightGreen: Colors.greenAccent,
+    brightYellow: Colors.yellowAccent,
+    brightBlue: Colors.blueAccent,
+    brightMagenta: const Color(0xFFFF79C6),
+    brightCyan: Colors.cyanAccent,
+    brightWhite: Colors.white,
+    searchHitBackground: Colors.yellow,
+    searchHitBackgroundCurrent: Colors.orange,
+    searchHitForeground: Colors.black,
+  );
 
   @override
   void initState() {
@@ -58,6 +110,13 @@ class _TerminalViewState extends State<TerminalView>
   }
 
   void _onTerminalChange() {
+    _wheelTimeout?.cancel();
+    _wheelTimeout = null;
+    _wheelInFlight = false;
+    if (!_prefetching && _historyTerminal == null &&
+        widget.session.terminal.mouseMode != xterm.MouseMode.none) {
+      _prefetchHistory();
+    }
     if (_userScrolledUp) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !_scrollController.hasClients) return;
@@ -78,10 +137,12 @@ class _TerminalViewState extends State<TerminalView>
 
   @override
   void dispose() {
+    _wheelTimeout?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _focusNode.removeListener(_onFocusChange);
     widget.session.terminal.removeListener(_onTerminalChange);
     _scrollController.dispose();
+    _historyScrollController.dispose();
     _focusNode.dispose();
     super.dispose();
   }
@@ -116,13 +177,55 @@ class _TerminalViewState extends State<TerminalView>
 
   void _handlePointerMove(PointerMoveEvent event) {
     if (event.kind != PointerDeviceKind.touch) return;
+    if (_historyLoading) return;
+    if (_historyMode) {
+      _scrollAccum += event.delta.dy;
+      if (_scrollAccum.abs() < _scrollStep) return;
+      final down = _scrollAccum < 0;
+      _scrollAccum = 0;
+      if (down && _historyScrollController.hasClients) {
+        final pos = _historyScrollController.position;
+        if (pos.pixels >= pos.maxScrollExtent - 1.0) {
+          _exitHistory();
+        }
+      }
+      return;
+    }
     _ScrollDbg.moves++;
     _ScrollDbg.lastDy = event.delta.dy;
     _scrollAccum += event.delta.dy;
-    while (_scrollAccum.abs() >= _scrollStep) {
-      final up = _scrollAccum > 0;
-      _scrollOneStep(up);
-      _scrollAccum += up ? -_scrollStep : _scrollStep;
+    if (_scrollAccum.abs() < _scrollStep) return;
+    final up = _scrollAccum > 0;
+    _scrollAccum = 0;
+    if (up && widget.session.terminal.mouseMode != xterm.MouseMode.none) {
+      _enterHistory();
+      return;
+    }
+    _sendWheel(up);
+  }
+
+  void _sendWheel(bool up) {
+    final terminal = widget.session.terminal;
+    _ScrollDbg.steps++;
+    _ScrollDbg.mode = terminal.mouseMode.toString();
+    if (terminal.mouseMode != xterm.MouseMode.none) {
+      if (_wheelInFlight) {
+        _ScrollDbg.path = 'skip(inflight)';
+        return;
+      }
+      _wheelInFlight = true;
+      _wheelTimeout?.cancel();
+      _wheelTimeout = Timer(const Duration(milliseconds: 200), () {
+        _wheelInFlight = false;
+      });
+      final code = up ? 64 : 65;
+      widget.session.sendKey('\x1b[<$code;1;1M');
+      _ScrollDbg.handled = 'sgr';
+      _ScrollDbg.path = 'wheel>tmux';
+    } else {
+      _ScrollDbg.path = 'normal';
+      _ScrollDbg.handled = 'n/a';
+      _scrollNormalBuffer(up);
     }
   }
 
@@ -139,23 +242,73 @@ class _TerminalViewState extends State<TerminalView>
     _userScrolledUp = newOffset < max - 1.0;
   }
 
-  void _scrollOneStep(bool up) {
-    final terminal = widget.session.terminal;
-    _ScrollDbg.steps++;
-    _ScrollDbg.mode = terminal.mouseMode.toString();
-    if (terminal.mouseMode != xterm.MouseMode.none) {
-      // xterm 4.0.0 encodes wheel buttons as 64+4/64+5 (=68/69) instead of the
-      // SGR-correct 64/65, so tmux ignores its reports. Emit the SGR wheel
-      // report directly: ESC[<64;1;1M (up) / ESC[<65;1;1M (down).
-      final code = up ? 64 : 65;
-      widget.session.sendKey('\x1b[<$code;1;1M');
-      _ScrollDbg.handled = 'sgr';
-      _ScrollDbg.path = 'wheel>tmux';
-      return;
+  // --- History overlay (capture-pane local scroll) ---
+
+  Future<void> _enterHistory() async {
+    if (_historyMode || _historyLoading) return;
+    if (_historyTerminal == null) {
+      // Full history not preloaded yet — show a minimal loading bar and wait
+      // for the in-flight (or freshly started) silent prefetch to finish.
+      setState(() => _historyLoading = true);
+      _ScrollDbg.path = 'capture…';
+      if (!_prefetching) _prefetchHistory();
+      await _prefetchOp;
+      if (!mounted) return;
+      setState(() => _historyLoading = false);
     }
-    _ScrollDbg.path = 'normal';
-    _ScrollDbg.handled = 'n/a';
-    _scrollNormalBuffer(up);
+    if (_historyTerminal == null) return;
+    setState(() => _historyMode = true);
+    _scrollHistoryToBottom();
+    _ScrollDbg.path = 'history';
+  }
+
+  // Silent full-history capture. Runs on tmux connect and on stale exit. Builds
+  // the local buffer with zero UI; only swaps it into the cache when NOT viewing
+  // history, so we never replace the live overlay's terminal (the freeze bug).
+  void _prefetchHistory() {
+    if (_prefetching) return;
+    _prefetching = true;
+    _prefetchOp = _doPrefetch();
+  }
+
+  Future<void> _doPrefetch() async {
+    try {
+      final full = await _buildHistoryTerminal();
+      if (full != null && !_historyMode) {
+        _historyTerminal = full;
+        _historyCapturedAt = DateTime.now();
+      }
+    } catch (_) {
+    } finally {
+      _prefetching = false;
+    }
+  }
+
+  Future<xterm.Terminal?> _buildHistoryTerminal() async {
+    final text = await widget.session.captureTmuxScrollback();
+    if (!mounted || text.trim().isEmpty) return null;
+    final live = widget.session.terminal;
+    final ht = xterm.Terminal(maxLines: 100000);
+    ht.resize(live.viewWidth, live.viewHeight);
+    ht.write(text.replaceAll('\r\n', '\n').replaceAll('\n', '\r\n'));
+    return ht;
+  }
+
+  void _scrollHistoryToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_historyScrollController.hasClients) return;
+      _historyScrollController
+          .jumpTo(_historyScrollController.position.maxScrollExtent);
+    });
+  }
+
+  void _exitHistory() {
+    setState(() => _historyMode = false);
+    _ScrollDbg.path = 'live';
+    final age = _historyCapturedAt;
+    if (age != null && DateTime.now().difference(age).inSeconds > 5) {
+      _prefetchHistory();
+    }
   }
 
   void _handlePointerUp(PointerUpEvent event) {
@@ -173,67 +326,85 @@ class _TerminalViewState extends State<TerminalView>
   Widget build(BuildContext context) {
     return Column(
       children: [
-        _DebugBar(
-          session: widget.session,
-          scrollController: _scrollController,
-        ),
         Expanded(
           child: Listener(
             onPointerDown: _handlePointerDown,
             onPointerMove: _handlePointerMove,
             onPointerUp: _handlePointerUp,
-            child: ScrollConfiguration(
-              behavior: const _NeverScrollBehavior(),
-              child: xterm.TerminalView(
-                widget.session.terminal,
-                key: _terminalViewKey,
-                scrollController: _scrollController,
-                focusNode: _focusNode,
-                autofocus: false,
-                deleteDetection: true,
-                keyboardType: TextInputType.text,
-                textStyle: const xterm.TerminalStyle(
-                  fontSize: 12,
-                  fontFamily: 'Menlo',
-                  fontFamilyFallback: [
-                    'Menlo',
-                    'Courier New',
-                    'PingFang SC',
-                    'PingFang TC',
-                    'PingFang HK',
-                    'Heiti SC',
-                    'Apple Color Emoji',
-                    'Apple Symbols',
-                    'monospace',
-                    'sans-serif',
-                  ],
+            child: Stack(
+              children: [
+                ScrollConfiguration(
+                  behavior: const _NeverScrollBehavior(),
+                  child: xterm.TerminalView(
+                    widget.session.terminal,
+                    key: _terminalViewKey,
+                    scrollController: _scrollController,
+                    focusNode: _focusNode,
+                    autofocus: false,
+                    deleteDetection: true,
+                    keyboardType: TextInputType.text,
+                    textStyle: _kTermStyle,
+                    theme: _kTermTheme,
+                  ),
                 ),
-                theme: xterm.TerminalTheme(
-                  cursor: Colors.white,
-                  selection: Colors.white24,
-                  foreground: Colors.white,
-                  background: Colors.black,
-                  black: Colors.black,
-                  white: Colors.white,
-                  red: Colors.red,
-                  green: Colors.green,
-                  yellow: Colors.yellow,
-                  blue: Colors.blue,
-                  magenta: const Color(0xFFFF00FF),
-                  cyan: Colors.cyan,
-                  brightBlack: Colors.grey,
-                  brightRed: Colors.redAccent,
-                  brightGreen: Colors.greenAccent,
-                  brightYellow: Colors.yellowAccent,
-                  brightBlue: Colors.blueAccent,
-                  brightMagenta: const Color(0xFFFF79C6),
-                  brightCyan: Colors.cyanAccent,
-                  brightWhite: Colors.white,
-                  searchHitBackground: Colors.yellow,
-                  searchHitBackgroundCurrent: Colors.orange,
-                  searchHitForeground: Colors.black,
+              if (_historyMode && _historyTerminal != null)
+                Positioned.fill(
+                  child: Column(
+                    children: [
+                      Container(
+                        height: 32,
+                        color: Colors.black87,
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        child: Row(
+                          children: [
+                            const Text(
+                              '⏪ 历史回看',
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: 12,
+                              ),
+                            ),
+                            const Spacer(),
+                            GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTap: _exitHistory,
+                              child: const Padding(
+                                padding: EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 6),
+                                child: Text(
+                                  '返回实时 ▶',
+                                  style: TextStyle(
+                                    color: Colors.greenAccent,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Expanded(
+                        child: xterm.TerminalView(
+                          _historyTerminal!,
+                          scrollController: _historyScrollController,
+                          readOnly: true,
+                          hardwareKeyboardOnly: true,
+                          textStyle: _kTermStyle,
+                          theme: _kTermTheme,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
+              if (_historyLoading)
+                const Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  child: LinearProgressIndicator(minHeight: 2),
+                ),
+            ],
             ),
           ),
         ),
