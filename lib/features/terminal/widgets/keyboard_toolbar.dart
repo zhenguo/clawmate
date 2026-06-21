@@ -110,7 +110,7 @@ class _KeyboardToolbarState extends State<KeyboardToolbar> {
                 _TextKey('Esc', () => widget.onKeyTap('\x1b')),
                 _TextKey('^C', () => widget.onKeyTap('\x03')),
                 _IconKey(Icons.keyboard_return, () => widget.onKeyTap('\r')),
-                const SizedBox(width: 6),
+                const _GroupDivider(),
                 // --- Navigation ---
                 _IconKey(Icons.keyboard_arrow_left, () => widget.onKeyTap('\x1b[D'), tooltip: '←', repeat: true),
                 _IconKey(Icons.keyboard_arrow_up, () => widget.onKeyTap('\x1b[A'), tooltip: '↑', repeat: true),
@@ -119,13 +119,13 @@ class _KeyboardToolbarState extends State<KeyboardToolbar> {
                 _IconKey(Icons.keyboard_double_arrow_up, () => widget.onKeyTap('\x1b[5~'), tooltip: 'PgUp'),
                 _IconKey(Icons.keyboard_double_arrow_down, () => widget.onKeyTap('\x1b[6~'), tooltip: 'PgDn'),
                 _IconKey(Icons.backspace_outlined, () => widget.onKeyTap('\x7f'), repeat: true),
-                const SizedBox(width: 6),
+                const _GroupDivider(),
                 // --- Editing ---
                 _IconKey(Icons.keyboard_tab, () => widget.onKeyTap('\t'), tooltip: 'Tab'),
                 _TextKey('/', () => widget.onKeyTap('/'), repeat: true),
                 _TextKey('Home', () => widget.onKeyTap('\x01')),
                 _TextKey('End', () => widget.onKeyTap('\x05')),
-                const SizedBox(width: 6),
+                const _GroupDivider(),
                 // --- Symbols ---
                 _TextKey('-', () => widget.onKeyTap('-'), repeat: true),
                 _TextKey('_', () => widget.onKeyTap('_'), repeat: true),
@@ -134,7 +134,7 @@ class _KeyboardToolbarState extends State<KeyboardToolbar> {
                 _TextKey('&', () => widget.onKeyTap('&'), repeat: true),
                 _TextKey('|', () => widget.onKeyTap('|'), repeat: true),
                 _TextKey('~', () => widget.onKeyTap('~'), repeat: true),
-                const SizedBox(width: 6),
+                const _GroupDivider(),
                 // --- Actions ---
                 _IconKey(Icons.history, () => widget.onShowHistory?.call()),
                 _IconKey(Icons.copy_outlined, () => widget.onCopyTerminal?.call()),
@@ -200,6 +200,20 @@ class _KeyboardToolbarState extends State<KeyboardToolbar> {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _GroupDivider extends StatelessWidget {
+  const _GroupDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 1,
+      height: 20,
+      margin: const EdgeInsets.symmetric(horizontal: 5),
+      color: const Color(0xFF3A3A3A),
     );
   }
 }
