@@ -68,6 +68,7 @@ class _TerminalViewState extends State<TerminalView>
   Timer? _wheelFlingTimer;
   double _wheelFlingVel = 0;
   double _wheelFlingAccum = 0;
+  bool _flingEdgeHapticDone = false;
   final ValueNotifier<double> _overscroll = ValueNotifier(0);
   static const _kMaxOverscroll = 120.0;
   late final AnimationController _overscrollController =
@@ -422,8 +423,13 @@ class _TerminalViewState extends State<TerminalView>
     _overscrollController.stop();
     final resist =
         1.0 - (_overscroll.value.abs() / _kMaxOverscroll).clamp(0.0, 0.85);
+    final prev = _overscroll.value;
     _overscroll.value = (_overscroll.value + delta * resist)
         .clamp(-_kMaxOverscroll, _kMaxOverscroll);
+    if (prev.abs() < _kMaxOverscroll * 0.5 &&
+        _overscroll.value.abs() >= _kMaxOverscroll * 0.5) {
+      HapticFeedback.lightImpact();
+    }
   }
 
   void _springBackOverscroll() {
@@ -448,6 +454,7 @@ class _TerminalViewState extends State<TerminalView>
     if (!_scrollController.hasClients) return;
     final max = _scrollController.position.maxScrollExtent;
     if (max <= 0) return;
+    _flingEdgeHapticDone = false;
     final sim = BouncingScrollSimulation(
       position: _scrollController.offset,
       velocity: -velocity,
@@ -472,6 +479,10 @@ class _TerminalViewState extends State<TerminalView>
     final target =
         (-(raw - clamped)).clamp(-_kMaxOverscroll, _kMaxOverscroll);
     if (_overscroll.value != target) _overscroll.value = target;
+    if (target.abs() > 0.5 && !_flingEdgeHapticDone) {
+      _flingEdgeHapticDone = true;
+      HapticFeedback.mediumImpact();
+    }
     final wasUp = _userScrolledUp;
     _userScrolledUp = clamped < max - 1.0;
     if (!_userScrolledUp) _hasNewOutput = false;
