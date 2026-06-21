@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -224,6 +225,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       appBar: AppBar(
         backgroundColor: const Color(0xFF1A1A1A),
         foregroundColor: Colors.white70,
+        systemOverlayStyle: SystemUiOverlayStyle.light,
         elevation: 0,
         scrolledUnderElevation: 0,
         titleSpacing: 0,
