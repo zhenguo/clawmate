@@ -1058,29 +1058,44 @@ class _DirectoryPickerDialogState extends State<_DirectoryPickerDialog> {
             ),
             const Divider(),
             Expanded(
-              child: _loading
-                  ? const Center(
-                      child: CircularProgressIndicator(strokeWidth: 2))
-                  : (_dirs == null || _dirs!.isEmpty)
-                      ? const Center(
-                          child: Text('No subdirectories',
-                              style: TextStyle(color: Colors.grey)))
-                      : ListView.builder(
-                          itemCount: _dirs!.length,
-                          itemBuilder: (_, i) {
-                            final dir = _dirs![i];
-                            final name = dir.contains('/')
-                                ? dir.substring(dir.lastIndexOf('/') + 1)
-                                : dir;
-                            return ListTile(
-                              dense: true,
-                              leading:
-                                  const Icon(Icons.folder, color: Colors.amber),
-                              title: Text(name),
-                              onTap: () => _navigateTo(dir),
-                            );
-                          },
-                        ),
+              child: Stack(
+                children: [
+                  // Keep the current list visible while the next directory
+                  // loads (the old _dirs is retained until the new result
+                  // arrives) so drilling doesn't flash a full-screen spinner.
+                  if (_dirs == null)
+                    const Center(
+                        child: CircularProgressIndicator(strokeWidth: 2))
+                  else if (_dirs!.isEmpty)
+                    const Center(
+                        child: Text('No subdirectories',
+                            style: TextStyle(color: Colors.grey)))
+                  else
+                    ListView.builder(
+                      itemCount: _dirs!.length,
+                      itemBuilder: (_, i) {
+                        final dir = _dirs![i];
+                        final name = dir.contains('/')
+                            ? dir.substring(dir.lastIndexOf('/') + 1)
+                            : dir;
+                        return ListTile(
+                          dense: true,
+                          leading:
+                              const Icon(Icons.folder, color: Colors.amber),
+                          title: Text(name),
+                          onTap: () => _navigateTo(dir),
+                        );
+                      },
+                    ),
+                  if (_loading && _dirs != null)
+                    const Positioned(
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      child: LinearProgressIndicator(minHeight: 2),
+                    ),
+                ],
+              ),
             ),
             const Divider(),
             TextField(
@@ -1280,29 +1295,41 @@ class _ClaudeTaskDialogState extends State<_ClaudeTaskDialog> {
             ),
             const Divider(height: 8),
             Expanded(
-              child: _loading
-                  ? const Center(
-                      child: CircularProgressIndicator(strokeWidth: 2))
-                  : (_dirs == null || _dirs!.isEmpty)
-                      ? const Center(
-                          child: Text('No subdirectories',
-                              style: TextStyle(color: Colors.grey)))
-                      : ListView.builder(
-                          itemCount: _dirs!.length,
-                          itemBuilder: (_, i) {
-                            final dir = _dirs![i];
-                            final name = dir.contains('/')
-                                ? dir.substring(dir.lastIndexOf('/') + 1)
-                                : dir;
-                            return ListTile(
-                              dense: true,
-                              leading: const Icon(Icons.folder,
-                                  color: Colors.amber),
-                              title: Text(name),
-                              onTap: () => _navigateTo(dir),
-                            );
-                          },
-                        ),
+              child: Stack(
+                children: [
+                  if (_dirs == null)
+                    const Center(
+                        child: CircularProgressIndicator(strokeWidth: 2))
+                  else if (_dirs!.isEmpty)
+                    const Center(
+                        child: Text('No subdirectories',
+                            style: TextStyle(color: Colors.grey)))
+                  else
+                    ListView.builder(
+                      itemCount: _dirs!.length,
+                      itemBuilder: (_, i) {
+                        final dir = _dirs![i];
+                        final name = dir.contains('/')
+                            ? dir.substring(dir.lastIndexOf('/') + 1)
+                            : dir;
+                        return ListTile(
+                          dense: true,
+                          leading: const Icon(Icons.folder,
+                              color: Colors.amber),
+                          title: Text(name),
+                          onTap: () => _navigateTo(dir),
+                        );
+                      },
+                    ),
+                  if (_loading && _dirs != null)
+                    const Positioned(
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      child: LinearProgressIndicator(minHeight: 2),
+                    ),
+                ],
+              ),
             ),
             const Divider(height: 8),
             TextField(
