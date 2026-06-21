@@ -275,6 +275,7 @@ class _TerminalViewState extends State<TerminalView>
     _historyController.removeListener(_onSelectionChange);
     _hasSelection.dispose();
     _liveHasNewOutput.dispose();
+    _historyRefreshing.dispose();
     _scrollController.dispose();
     _historyScrollController.dispose();
     _termController.dispose();
@@ -571,6 +572,8 @@ class _TerminalViewState extends State<TerminalView>
     _scrollHistoryToBottom();
   }
 
+  final ValueNotifier<bool> _historyRefreshing = ValueNotifier(false);
+
   // Silent full-history capture. Runs on tmux connect and on stale exit. Builds
   // the local buffer with zero UI; only swaps it into the cache when NOT viewing
   // history, so we never replace the live overlay's terminal (the freeze bug).
@@ -591,6 +594,25 @@ class _TerminalViewState extends State<TerminalView>
     } catch (_) {
     } finally {
       _prefetching = false;
+    }
+  }
+
+  Future<void> _refreshHistoryInPlace() async {
+    if (_historyRefreshing.value) return;
+    _historyRefreshing.value = true;
+    try {
+      final fresh = await _buildHistoryTerminal();
+      if (!mounted || fresh == null) return;
+      _historyTerminal = fresh;
+      _historyCapturedAt = DateTime.now();
+      if (_historyMode) {
+        setState(() {});
+        _scrollHistoryToBottom();
+        HapticFeedback.lightImpact();
+      }
+    } catch (_) {
+    } finally {
+      if (mounted) _historyRefreshing.value = false;
     }
   }
 
@@ -864,6 +886,41 @@ class _TerminalViewState extends State<TerminalView>
                                   size: 17,
                                 ),
                               ),
+                            ),
+                            ValueListenableBuilder<bool>(
+                              valueListenable: _historyRefreshing,
+                              builder: (context, refreshing, _) {
+                                return _PressableScale(
+                                  onTap: refreshing ? () {} : _refreshHistoryInPlace,
+                                  builder: (pressed) => Container(
+                                    width: 36,
+                                    height: 30,
+                                    alignment: Alignment.center,
+                                    margin: const EdgeInsets.only(right: 6),
+                                    decoration: BoxDecoration(
+                                      color: pressed
+                                          ? const Color(0xFF3A3A3A)
+                                          : const Color(0xFF2A2A2A),
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: refreshing
+                                        ? const SizedBox(
+                                            width: 14,
+                                            height: 14,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 1.5,
+                                              valueColor: AlwaysStoppedAnimation<Color>(
+                                                  Color(0xFF5AC8FA)),
+                                            ),
+                                          )
+                                        : Icon(
+                                            Icons.refresh,
+                                            color: pressed ? Colors.white : Colors.white70,
+                                            size: 17,
+                                          ),
+                                  ),
+                                );
+                              },
                             ),
                             ValueListenableBuilder<bool>(
                               valueListenable: _liveHasNewOutput,

@@ -548,6 +548,7 @@ class TerminalSession {
     _connectionStateController.close();
     _outputController.close();
     ctrlNotifier.dispose();
+    altNotifier.dispose();
     inTmuxSession.dispose();
     ssh.dispose();
     _mosh?.dispose();
