@@ -55,6 +55,7 @@ class _TerminalViewState extends State<TerminalView>
   bool _stoppedMomentumOnDown = false;
   bool _userScrolledUp = false;
   bool _hasNewOutput = false;
+  bool _autoScrollScheduled = false;
   static const _scrollStep = 18.0;
   static const _tapSlop = 12.0;
   static const _historyEnterThreshold = 48.0;
@@ -153,7 +154,10 @@ class _TerminalViewState extends State<TerminalView>
       if (!_hasNewOutput) setState(() => _hasNewOutput = true);
       return;
     }
+    if (_autoScrollScheduled) return;
+    _autoScrollScheduled = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      _autoScrollScheduled = false;
       if (!mounted || !_scrollController.hasClients) return;
       final max = _scrollController.position.maxScrollExtent;
       if (max > 0) {
