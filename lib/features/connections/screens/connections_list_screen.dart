@@ -233,6 +233,7 @@ class _ScanSheet extends ConsumerStatefulWidget {
 
 class _ScanSheetState extends ConsumerState<_ScanSheet> {
   String? _probingDevice;
+  String? _probeError;
   final List<String> _logs = [];
   StreamSubscription<String>? _logSub;
   final _logScrollController = ScrollController();
@@ -261,7 +262,10 @@ class _ScanSheetState extends ConsumerState<_ScanSheet> {
   }
 
   Future<void> _probeAndSelect(DiscoveredDevice device) async {
-    setState(() => _probingDevice = device.name);
+    setState(() {
+      _probingDevice = device.name;
+      _probeError = null;
+    });
     _logs.add('[${DateTime.now().toString().substring(11, 19)}] Probing ${device.allAddresses.length} address(es) for ${device.name}...');
     for (final addr in device.allAddresses) {
       _logs.add('[${DateTime.now().toString().substring(11, 19)}]   trying $addr:${device.port}');
@@ -277,12 +281,10 @@ class _ScanSheetState extends ConsumerState<_ScanSheet> {
       widget.onDeviceSelected(device, reachable);
     } else {
       _logs.add('[${DateTime.now().toString().substring(11, 19)}]   => ALL UNREACHABLE');
-      setState(() => _probingDevice = null);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Cannot reach ${device.name} on any address: ${device.allAddresses.join(", ")}'),
-        ),
-      );
+      setState(() {
+        _probingDevice = null;
+        _probeError = 'Cannot reach ${device.name} — all addresses unreachable';
+      });
     }
   }
 
@@ -319,6 +321,37 @@ class _ScanSheetState extends ConsumerState<_ScanSheet> {
                 ],
               ),
             ),
+            if (_probeError != null)
+              Container(
+                margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                  border:
+                      Border.all(color: Colors.orange.withValues(alpha: 0.4)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.error_outline,
+                        color: Colors.orange, size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _probeError!,
+                        style: const TextStyle(
+                            color: Colors.orange, fontSize: 13),
+                      ),
+                    ),
+                    GestureDetector(
+                      onTap: () => setState(() => _probeError = null),
+                      child: const Icon(Icons.close,
+                          color: Colors.orange, size: 16),
+                    ),
+                  ],
+                ),
+              ),
             if (state.devices.isEmpty && state.scanning)
               const Padding(
                 padding: EdgeInsets.all(16),
