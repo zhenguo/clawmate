@@ -252,9 +252,12 @@ mixin _RepeatableKey<T extends StatefulWidget> on State<T> {
   void _startRepeat() {
     if (!repeatEnabled) return;
     _repeatDelay = Timer(const Duration(milliseconds: 400), () {
+      // One haptic when auto-repeat engages, then run silently. Buzzing on
+      // every 70ms tick machine-guns the Taptic engine (~14/s) — holding
+      // backspace or an arrow should feel smooth, like the native keyboard.
+      HapticFeedback.selectionClick();
       _repeatTimer = Timer.periodic(const Duration(milliseconds: 70), (_) {
         _didRepeat = true;
-        HapticFeedback.selectionClick();
         repeatAction?.call();
       });
     });
