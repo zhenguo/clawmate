@@ -134,6 +134,11 @@ class _KeyboardToolbarState extends State<KeyboardToolbar> {
                 _TextKey('&', () => widget.onKeyTap('&'), repeat: true),
                 _TextKey('|', () => widget.onKeyTap('|'), repeat: true),
                 _TextKey('~', () => widget.onKeyTap('~'), repeat: true),
+                _TextKey('=', () => widget.onKeyTap('='), repeat: true),
+                _TextKey(':', () => widget.onKeyTap(':'), repeat: true),
+                _TextKey('@', () => widget.onKeyTap('@')),
+                _TextKey('*', () => widget.onKeyTap('*'), repeat: true),
+                _TextKey('#', () => widget.onKeyTap('#'), repeat: true),
                 const _GroupDivider(),
                 // --- Actions ---
                 _IconKey(Icons.history, () => widget.onShowHistory?.call()),
