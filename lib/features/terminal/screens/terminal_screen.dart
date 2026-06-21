@@ -964,9 +964,19 @@ class _DirectoryPickerDialogState extends State<_DirectoryPickerDialog> {
   }
 
   String get _displayPath {
-    final home = '/Users/${widget.session.profile.username}';
-    if (_currentPath.startsWith(home)) {
-      return '~${_currentPath.substring(home.length)}';
+    final user = widget.session.profile.username;
+    // Match the common home layouts: Linux (/home/<user>, /root for root),
+    // and macOS (/Users/<user>). Most SSH servers are Linux, so the old
+    // macOS-only assumption never shortened real paths.
+    final homes = [
+      if (user == 'root') '/root' else '/home/$user',
+      '/Users/$user',
+    ];
+    for (final home in homes) {
+      if (_currentPath == home) return '~';
+      if (_currentPath.startsWith('$home/')) {
+        return '~${_currentPath.substring(home.length)}';
+      }
     }
     return _currentPath;
   }
@@ -1149,9 +1159,19 @@ class _ClaudeTaskDialogState extends State<_ClaudeTaskDialog> {
   }
 
   String get _displayPath {
-    final home = '/Users/${widget.session.profile.username}';
-    if (_currentPath.startsWith(home)) {
-      return '~${_currentPath.substring(home.length)}';
+    final user = widget.session.profile.username;
+    // Match the common home layouts: Linux (/home/<user>, /root for root),
+    // and macOS (/Users/<user>). Most SSH servers are Linux, so the old
+    // macOS-only assumption never shortened real paths.
+    final homes = [
+      if (user == 'root') '/root' else '/home/$user',
+      '/Users/$user',
+    ];
+    for (final home in homes) {
+      if (_currentPath == home) return '~';
+      if (_currentPath.startsWith('$home/')) {
+        return '~${_currentPath.substring(home.length)}';
+      }
     }
     return _currentPath;
   }
