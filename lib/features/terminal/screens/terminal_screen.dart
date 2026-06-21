@@ -1517,7 +1517,10 @@ git add -A && '''
             ),
           ),
           const Divider(height: 1),
-          if (_loading)
+          // Only blank to the spinner on the first load. On manual refresh the
+          // existing branch list stays put (the refresh button greys out as the
+          // loading cue), so the sheet doesn't flash empty.
+          if (_loading && _local.isEmpty && _remote.isEmpty)
             const Padding(
               padding: EdgeInsets.all(32),
               child: Row(
@@ -1540,7 +1543,9 @@ git add -A && '''
             )
           else
             Flexible(
-              child: ListView(
+              child: Stack(
+                children: [
+                  ListView(
                 shrinkWrap: true,
                 children: [
                   if (_local.isNotEmpty) ...[
@@ -1601,6 +1606,15 @@ git add -A && '''
                           onTap: () => _checkout(branch),
                         )),
                   ],
+                ],
+              ),
+                  if (_loading)
+                    const Positioned(
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      child: LinearProgressIndicator(minHeight: 2),
+                    ),
                 ],
               ),
             ),
