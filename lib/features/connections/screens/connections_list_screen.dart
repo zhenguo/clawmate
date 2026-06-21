@@ -423,23 +423,57 @@ class _ConnectionTile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return ListTile(
-      leading: const Icon(Icons.computer),
-      title: Text(profile.name),
-      subtitle: Text(
-        '${profile.username}@${profile.host}:${profile.port}'
-        '${profile.transportType == TransportType.mosh ? ' (Mosh)' : ''}',
+    return Dismissible(
+      key: ValueKey(profile.id),
+      direction: DismissDirection.endToStart,
+      background: Container(
+        alignment: Alignment.centerRight,
+        color: const Color(0xFFFF3B30),
+        padding: const EdgeInsets.only(right: 24),
+        child: const Icon(Icons.delete, color: Colors.white),
       ),
-      trailing: const Icon(Icons.chevron_right),
-      onTap: () {
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => TerminalScreen(profile: profile),
-          ),
-        );
-      },
-      onLongPress: () => _showActions(context, ref),
+      confirmDismiss: (_) => _confirmDeleteChoice(context),
+      onDismissed: (_) =>
+          ref.read(connectionsProvider.notifier).remove(profile.id),
+      child: ListTile(
+        leading: const Icon(Icons.computer),
+        title: Text(profile.name),
+        subtitle: Text(
+          '${profile.username}@${profile.host}:${profile.port}'
+          '${profile.transportType == TransportType.mosh ? ' (Mosh)' : ''}',
+        ),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: () {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => TerminalScreen(profile: profile),
+            ),
+          );
+        },
+        onLongPress: () => _showActions(context, ref),
+      ),
     );
+  }
+
+  Future<bool> _confirmDeleteChoice(BuildContext context) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Connection'),
+        content: Text('Delete "${profile.name}"?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    return ok == true;
   }
 
   void _showActions(BuildContext context, WidgetRef ref) {
