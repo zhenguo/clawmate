@@ -515,7 +515,7 @@ class _TerminalViewState extends State<TerminalView>
           _termController.selection == null &&
           widget.session.terminal.mouseMode == xterm.MouseMode.none) {
         final v = _velocityTracker?.getVelocity().pixelsPerSecond.dy ?? 0;
-        if (v.abs() > 50) _startFling(v);
+        if (v.abs() > 120) _startFling(v);
       } else if (distance >= _tapSlop &&
           !_historyMode &&
           _termController.selection == null &&
