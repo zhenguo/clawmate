@@ -401,19 +401,28 @@ class _TerminalViewState extends State<TerminalView>
       _historySnack('历史回看仅在 tmux 会话中可用');
       return;
     }
-    final capturedAt = _historyCapturedAt;
-    final stale = capturedAt == null ||
-        DateTime.now().difference(capturedAt).inSeconds > 5;
-    if (_historyTerminal == null || stale) {
-      // No snapshot yet, or the cached one is stale — capture fresh so the
-      // user always sees recent history, then show the minimal loading bar
-      // while the (possibly in-flight) capture finishes.
-      setState(() => _historyLoading = true);
-      if (!_prefetching) _prefetchHistory();
-      await _prefetchOp;
-      if (!mounted) return;
-      setState(() => _historyLoading = false);
+    if (_historyTerminal != null) {
+      // Cached snapshot available — open instantly even if stale. A silent
+      // background refresh will update the cache for the next entry.
+      setState(() {
+        _historyMode = true;
+        _historyReady = false;
+      });
+      HapticFeedback.lightImpact();
+      _scrollHistoryToBottom();
+      final capturedAt = _historyCapturedAt;
+      if (capturedAt == null ||
+          DateTime.now().difference(capturedAt).inSeconds > 5) {
+        _prefetchHistory();
+      }
+      return;
     }
+    // Cold start — no cache at all. Show loading overlay while we capture.
+    setState(() => _historyLoading = true);
+    if (!_prefetching) _prefetchHistory();
+    await _prefetchOp;
+    if (!mounted) return;
+    setState(() => _historyLoading = false);
     if (_historyTerminal == null) {
       _historySnack('暂无历史内容');
       return;
