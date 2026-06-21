@@ -131,6 +131,11 @@ class _KeyboardToolbarState extends State<KeyboardToolbar> {
                 _TextKey('Home', () => widget.onKeyTap('\x1b[H')),
                 _TextKey('End', () => widget.onKeyTap('\x1b[F')),
                 const _GroupDivider(),
+                // --- Quick actions (most-used, close to left) ---
+                _IconKey(Icons.history, () => widget.onShowHistory?.call()),
+                _IconKey(Icons.copy_outlined, () => widget.onCopyTerminal?.call()),
+                _IconKey(Icons.content_paste, () => widget.onPaste?.call()),
+                const _GroupDivider(),
                 // --- Function keys (vim/htop/mc/lazygit) ---
                 _TextKey('F1', () => widget.onKeyTap('\x1bOP')),
                 _TextKey('F2', () => widget.onKeyTap('\x1bOQ')),
@@ -174,9 +179,6 @@ class _KeyboardToolbarState extends State<KeyboardToolbar> {
                 _TextKey('?', () => widget.onKeyTap('?')),
                 const _GroupDivider(),
                 // --- Actions ---
-                _IconKey(Icons.history, () => widget.onShowHistory?.call()),
-                _IconKey(Icons.copy_outlined, () => widget.onCopyTerminal?.call()),
-                _IconKey(Icons.content_paste, () => widget.onPaste?.call()),
                 _IconKey(Icons.image_outlined, () => widget.onPasteImage?.call()),
                 _VoiceKey(
                   isListening: widget.isListening,
