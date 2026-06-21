@@ -32,6 +32,7 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
   late final TextEditingController _passwordCtrl;
   late TransportType _transportType;
   bool _saving = false;
+  bool _obscurePassword = true;
 
   bool get _isEditing => widget.profile != null;
 
@@ -156,8 +157,17 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
               decoration: InputDecoration(
                 labelText: 'Password',
                 hintText: _isEditing ? '(unchanged if empty)' : '',
+                suffixIcon: IconButton(
+                  icon: Icon(
+                    _obscurePassword
+                        ? Icons.visibility_off
+                        : Icons.visibility,
+                  ),
+                  onPressed: () =>
+                      setState(() => _obscurePassword = !_obscurePassword),
+                ),
               ),
-              obscureText: true,
+              obscureText: _obscurePassword,
               validator: (v) {
                 if (!_isEditing && (v == null || v.isEmpty)) {
                   return 'Password required';
