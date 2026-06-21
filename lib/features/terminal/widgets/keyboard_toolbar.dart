@@ -101,6 +101,8 @@ class _KeyboardToolbarState extends State<KeyboardToolbar> {
                 ),
                 _TextKey('Esc', () => widget.onKeyTap('\x1b')),
                 _TextKey('^C', () => widget.onKeyTap('\x03')),
+                _TextKey('^D', () => widget.onKeyTap('\x04')),
+                _TextKey('^Z', () => widget.onKeyTap('\x1a')),
                 _IconKey(Icons.keyboard_return, () => widget.onKeyTap('\r'),
                     accent: KeyboardToolbar._accentColor),
                 const _GroupDivider(),
