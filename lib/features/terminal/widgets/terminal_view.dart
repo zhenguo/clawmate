@@ -710,14 +710,40 @@ class _TerminalViewState extends State<TerminalView>
                       ),
               ),
               if (_historyLoading)
-                const Positioned(
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  child: LinearProgressIndicator(
-                    minHeight: 2,
-                    backgroundColor: Color(0xFF1A1A1A),
-                    valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF5AC8FA)),
+                const Positioned.fill(
+                  child: ColoredBox(
+                    color: Color(0xFF1A1A1A),
+                    child: Column(
+                      children: [
+                        _HistoryHeaderBar(),
+                        Expanded(
+                          child: Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                SizedBox(
+                                  width: 22,
+                                  height: 22,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                        Color(0xFF5AC8FA)),
+                                  ),
+                                ),
+                                SizedBox(height: 14),
+                                Text(
+                                  '正在加载历史…',
+                                  style: TextStyle(
+                                    color: Colors.white38,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               _ScrollToBottomFab(
@@ -776,6 +802,38 @@ class _TerminalViewState extends State<TerminalView>
           onShowHistory: _enterHistory,
         ),
       ],
+    );
+  }
+}
+
+class _HistoryHeaderBar extends StatelessWidget {
+  const _HistoryHeaderBar();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 44,
+      decoration: const BoxDecoration(
+        color: Color(0xFF1A1A1A),
+        border: Border(
+          bottom: BorderSide(color: Color(0xFF3A3A3A), width: 0.5),
+        ),
+      ),
+      padding: const EdgeInsets.only(left: 14),
+      child: const Row(
+        children: [
+          Icon(Icons.history, color: Colors.white70, size: 18),
+          SizedBox(width: 7),
+          Text(
+            '历史回看',
+            style: TextStyle(
+              color: Colors.white70,
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
