@@ -48,6 +48,7 @@ class _TerminalViewState extends State<TerminalView>
   final _termController = xterm.TerminalController();
   final _scrollController = ScrollController();
   final _focusNode = FocusNode();
+  final ValueNotifier<bool> _focused = ValueNotifier(false);
   bool _intentionalFocus = false;
   double _scrollAccum = 0;
   double _scrollAccumX = 0;
@@ -171,7 +172,10 @@ class _TerminalViewState extends State<TerminalView>
       _focusNode.unfocus();
       return;
     }
-    if (mounted) setState(() {});
+    // Only the InputBar slot depends on focus — drive it through a notifier so
+    // showing/hiding the keyboard doesn't rebuild the whole terminal tree mid
+    // keyboard animation.
+    _focused.value = _focusNode.hasFocus;
   }
 
   @override
@@ -180,6 +184,7 @@ class _TerminalViewState extends State<TerminalView>
     _flingController.dispose();
     _overscrollController.dispose();
     _overscroll.dispose();
+    _focused.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _focusNode.removeListener(_onFocusChange);
     widget.session.terminal.removeListener(_onTerminalChange);
@@ -786,23 +791,29 @@ class _TerminalViewState extends State<TerminalView>
             ),
           ),
         ),
-        AnimatedSwitcher(
-          duration: const Duration(milliseconds: 200),
-          switchInCurve: Curves.easeOut,
-          switchOutCurve: Curves.easeIn,
-          transitionBuilder: (child, animation) {
-            return FadeTransition(
-              opacity: animation,
-              child: SizeTransition(
-                sizeFactor: animation,
-                alignment: Alignment.topCenter,
-                child: child,
-              ),
+        ValueListenableBuilder<bool>(
+          valueListenable: _focused,
+          builder: (context, focused, _) {
+            final showBar = !_historyMode && !focused;
+            return AnimatedSwitcher(
+              duration: const Duration(milliseconds: 200),
+              switchInCurve: Curves.easeOut,
+              switchOutCurve: Curves.easeIn,
+              transitionBuilder: (child, animation) {
+                return FadeTransition(
+                  opacity: animation,
+                  child: SizeTransition(
+                    sizeFactor: animation,
+                    alignment: Alignment.topCenter,
+                    child: child,
+                  ),
+                );
+              },
+              child: showBar
+                  ? _InputBar(key: const ValueKey('input-bar'), onTap: _showKeyboard)
+                  : const SizedBox.shrink(key: ValueKey('no-input-bar')),
             );
           },
-          child: (!_historyMode && !_focusNode.hasFocus)
-              ? _InputBar(key: const ValueKey('input-bar'), onTap: _showKeyboard)
-              : const SizedBox.shrink(key: ValueKey('no-input-bar')),
         ),
         Offstage(
           offstage: _historyMode,
