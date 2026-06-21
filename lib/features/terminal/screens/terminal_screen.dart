@@ -1291,11 +1291,31 @@ class _ClaudeTaskDialogState extends State<_ClaudeTaskDialog> {
     return _currentPath;
   }
 
+  String? get _sanitizedPreview {
+    final raw = _taskController.text.trim();
+    if (raw.isEmpty) return null;
+    final sanitized = raw
+        .replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '-')
+        .replaceAll(RegExp(r'-+'), '-')
+        .replaceAll(RegExp(r'^-|-$'), '');
+    if (sanitized == raw || sanitized.isEmpty) return null;
+    return 'claude-$sanitized';
+  }
+
   void _submit() {
     final task = _taskController.text.trim();
     if (task.isEmpty) {
       HapticFeedback.lightImpact();
       setState(() => _taskError = 'Please enter a session name');
+      return;
+    }
+    final sanitized = task
+        .replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '-')
+        .replaceAll(RegExp(r'-+'), '-')
+        .replaceAll(RegExp(r'^-|-$'), '');
+    if (sanitized.isEmpty) {
+      HapticFeedback.lightImpact();
+      setState(() => _taskError = 'Name must contain letters or numbers');
       return;
     }
     final manual = _manualController.text.trim();
@@ -1327,6 +1347,8 @@ class _ClaudeTaskDialogState extends State<_ClaudeTaskDialog> {
                 prefixIcon: const Icon(Icons.label_outline, size: 18),
                 border: const OutlineInputBorder(),
                 errorText: _taskError,
+                helperText: _sanitizedPreview,
+                helperStyle: const TextStyle(fontSize: 11, color: Colors.white38),
               ),
               style: const TextStyle(fontSize: 13),
             ),
