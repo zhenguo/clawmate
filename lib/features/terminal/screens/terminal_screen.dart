@@ -377,10 +377,12 @@ class _ConnectionStatsBarState extends State<_ConnectionStatsBar> {
         return;
       }
       final s = widget.session.snapshotSpeed();
-      setState(() {
-        _speedText =
-            '${_formatSpeed(s.rxSpeed)}/s ↓  ${_formatSpeed(s.txSpeed)}/s ↑';
-      });
+      final newText = (s.rxSpeed == 0 && s.txSpeed == 0)
+          ? ''
+          : '${_formatSpeed(s.rxSpeed)}/s ↓  ${_formatSpeed(s.txSpeed)}/s ↑';
+      if (newText != _speedText) {
+        setState(() => _speedText = newText);
+      }
     });
     _pingTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       _measureLatency();
