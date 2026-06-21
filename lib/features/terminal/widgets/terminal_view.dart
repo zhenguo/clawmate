@@ -821,6 +821,7 @@ class _TerminalViewState extends State<TerminalView>
             session: widget.session,
             termController: _termController,
             terminalViewKey: _terminalViewKey,
+            scrollController: _scrollController,
             onHideKeyboard: _hideKeyboard,
             onShowHistory: _enterHistory,
           ),
@@ -1083,12 +1084,14 @@ class _ToolbarWrapper extends StatefulWidget {
   final TerminalSession session;
   final xterm.TerminalController termController;
   final GlobalKey<xterm.TerminalViewState> terminalViewKey;
+  final ScrollController scrollController;
   final VoidCallback onHideKeyboard;
   final Future<void> Function() onShowHistory;
   const _ToolbarWrapper({
     required this.session,
     required this.termController,
     required this.terminalViewKey,
+    required this.scrollController,
     required this.onHideKeyboard,
     required this.onShowHistory,
   });
@@ -1199,10 +1202,29 @@ class _ToolbarWrapperState extends State<_ToolbarWrapper> {
           widget.termController.clearSelection();
         } else {
           final buffer = terminal.buffer;
+          final viewH = terminal.viewHeight;
+          final totalLines = buffer.height;
+          final maxTop = (totalLines - viewH).clamp(0, totalLines);
+          // Copy what's actually on screen. When the user has scrolled up, the
+          // viewport no longer sits at the bottom of the buffer, so derive the
+          // top visible line from the scroll offset. Cell height comes from the
+          // scroll metrics themselves (maxScrollExtent over scrollable rows) so
+          // we don't hard-code any font-internal line height.
+          var topLine = maxTop;
+          final sc = widget.scrollController;
+          if (sc.hasClients && maxTop > 0) {
+            final max = sc.position.maxScrollExtent;
+            if (max > 0) {
+              final cellH = max / maxTop;
+              if (cellH > 0) topLine = (sc.offset / cellH).round().clamp(0, maxTop);
+            }
+          }
           final lines = <String>[];
-          final scrollBack = buffer.height - terminal.viewHeight;
-          for (var i = 0; i < terminal.viewHeight; i++) {
-            lines.add(buffer.lines[i + scrollBack].toString().trimRight());
+          for (var i = 0; i < viewH; i++) {
+            final idx = topLine + i;
+            if (idx >= 0 && idx < totalLines) {
+              lines.add(buffer.lines[idx].toString().trimRight());
+            }
           }
           text = lines.join('\n').trimRight();
         }
