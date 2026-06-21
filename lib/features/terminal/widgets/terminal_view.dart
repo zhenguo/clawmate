@@ -95,7 +95,7 @@ class _TerminalViewState extends State<TerminalView>
     cursor: const Color(0xFF61AFEF),
     selection: const Color(0x4061AFEF),
     foreground: const Color(0xFFABB2BF),
-    background: Colors.black,
+    background: const Color(0xFF1A1A1A),
     black: const Color(0xFF3F4451),
     white: const Color(0xFFABB2BF),
     red: const Color(0xFFE06C75),
