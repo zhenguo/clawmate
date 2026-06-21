@@ -1714,7 +1714,15 @@ class _ToolbarWrapperState extends State<_ToolbarWrapper> {
           return;
         }
         final text = data.text!;
-        final lineCount = '\n'.allMatches(text).length + 1;
+        // Count logical lines, not raw newlines: copying a single command from
+        // a note, webpage, or password manager almost always drags a trailing
+        // newline (and CRLF on some sources), which used to trip the multi-line
+        // guard and pop a modal for what is really one command. Only a genuine
+        // multi-command paste — a newline with more content after it — should
+        // ask for confirmation. The original text is still pasted unchanged.
+        final logicalLines =
+            text.replaceAll('\r\n', '\n').replaceAll(RegExp(r'\n+$'), '');
+        final lineCount = '\n'.allMatches(logicalLines).length + 1;
         if (lineCount > 1) {
           final ok = await showDialog<bool>(
             context: context,
