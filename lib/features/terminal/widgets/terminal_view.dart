@@ -1590,6 +1590,21 @@ class _ToolbarWrapperState extends State<_ToolbarWrapper> {
       }
     }
     setState(() => _isListening = true);
+    // Pick the recognizer locale from the device's installed speech locales,
+    // matched to the app's UI language; fall back to the device's system
+    // speech locale. Never hand-build an id (a bare "en_" matches nothing).
+    final appLang = WidgetsBinding.instance.platformDispatcher.locale.languageCode
+        .toLowerCase();
+    final locales = await _speech.locales();
+    String? localeId;
+    for (final l in locales) {
+      if (l.localeId.replaceAll('-', '_').toLowerCase().startsWith('${appLang}_') ||
+          l.localeId.toLowerCase() == appLang) {
+        localeId = l.localeId;
+        break;
+      }
+    }
+    localeId ??= (await _speech.systemLocale())?.localeId;
     await _speech.listen(
       onResult: (result) {
         if (result.finalResult && result.recognizedWords.isNotEmpty) {
@@ -1598,7 +1613,7 @@ class _ToolbarWrapperState extends State<_ToolbarWrapper> {
         }
       },
       listenOptions: stt.SpeechListenOptions(
-        localeId: 'zh_CN',
+        localeId: localeId,
         listenMode: stt.ListenMode.dictation,
       ),
     );
