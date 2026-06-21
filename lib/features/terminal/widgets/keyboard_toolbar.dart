@@ -248,6 +248,7 @@ mixin _RepeatableKey<T extends StatefulWidget> on State<T> {
     _repeatDelay = Timer(const Duration(milliseconds: 400), () {
       _repeatTimer = Timer.periodic(const Duration(milliseconds: 70), (_) {
         _didRepeat = true;
+        HapticFeedback.selectionClick();
         repeatAction?.call();
       });
     });
