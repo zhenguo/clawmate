@@ -297,9 +297,36 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
             iconSize: 21,
             icon: const Icon(Icons.logout_rounded, color: Color(0xFFFF3B30)),
             tooltip: '断开连接',
-            onPressed: () {
-              _session.disconnect();
-              Navigator.pop(context);
+            onPressed: () async {
+              final ok = await showDialog<bool>(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  backgroundColor: const Color(0xFF2A2A2A),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14)),
+                  title: const Text('断开连接？',
+                      style: TextStyle(color: Colors.white, fontSize: 16)),
+                  content: Text('将关闭与 ${widget.profile.name} 的连接。',
+                      style: const TextStyle(
+                          color: Colors.white70, fontSize: 13)),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx, false),
+                      child: const Text('取消',
+                          style: TextStyle(color: Color(0xFF8E8E93))),
+                    ),
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx, true),
+                      child: const Text('断开',
+                          style: TextStyle(color: Color(0xFFFF3B30))),
+                    ),
+                  ],
+                ),
+              );
+              if (ok == true && mounted) {
+                _session.disconnect();
+                Navigator.pop(context);
+              }
             },
           ),
           const SizedBox(width: 4),
