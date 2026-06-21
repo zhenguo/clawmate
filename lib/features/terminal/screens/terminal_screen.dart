@@ -1173,6 +1173,7 @@ class _ClaudeTaskDialogState extends State<_ClaudeTaskDialog> {
   List<String>? _dirs;
   List<String> _recentDirs = [];
   bool _loading = true;
+  String? _taskError;
 
   @override
   void initState() {
@@ -1237,7 +1238,11 @@ class _ClaudeTaskDialogState extends State<_ClaudeTaskDialog> {
 
   void _submit() {
     final task = _taskController.text.trim();
-    if (task.isEmpty) return;
+    if (task.isEmpty) {
+      HapticFeedback.lightImpact();
+      setState(() => _taskError = 'Please enter a session name');
+      return;
+    }
     final manual = _manualController.text.trim();
     final dir = manual.isNotEmpty ? manual : _currentPath;
     _saveRecent(dir);
@@ -1258,11 +1263,15 @@ class _ClaudeTaskDialogState extends State<_ClaudeTaskDialog> {
               controller: _taskController,
               autofocus: true,
               maxLines: 1,
-              decoration: const InputDecoration(
+              onChanged: (_) {
+                if (_taskError != null) setState(() => _taskError = null);
+              },
+              decoration: InputDecoration(
                 isDense: true,
                 hintText: 'Session name, e.g. fix-login-bug',
-                prefixIcon: Icon(Icons.label_outline, size: 18),
-                border: OutlineInputBorder(),
+                prefixIcon: const Icon(Icons.label_outline, size: 18),
+                border: const OutlineInputBorder(),
+                errorText: _taskError,
               ),
               style: const TextStyle(fontSize: 13),
             ),
