@@ -18,16 +18,6 @@ class _NeverScrollBehavior extends ScrollBehavior {
   }
 }
 
-class _ScrollDbg {
-  static int downs = 0;
-  static int moves = 0;
-  static int steps = 0;
-  static double lastDy = 0;
-  static String mode = '-';
-  static String handled = '-';
-  static String path = '-';
-}
-
 class TerminalView extends StatefulWidget {
   final TerminalSession session;
 
@@ -38,8 +28,9 @@ class TerminalView extends StatefulWidget {
 }
 
 class _TerminalViewState extends State<TerminalView>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   final _terminalViewKey = GlobalKey<xterm.TerminalViewState>();
+  final _termController = xterm.TerminalController();
   final _scrollController = ScrollController();
   final _focusNode = FocusNode();
   bool _intentionalFocus = false;
@@ -50,6 +41,9 @@ class _TerminalViewState extends State<TerminalView>
   static const _tapSlop = 12.0;
   bool _wheelInFlight = false;
   Timer? _wheelTimeout;
+  VelocityTracker? _velocityTracker;
+  late final AnimationController _flingController =
+      AnimationController.unbounded(vsync: this)..addListener(_onFlingTick);
 
   bool _historyMode = false;
   bool _historyLoading = false;
@@ -76,28 +70,28 @@ class _TerminalViewState extends State<TerminalView>
     ],
   );
   static final _kTermTheme = xterm.TerminalTheme(
-    cursor: Colors.white,
-    selection: Colors.white24,
-    foreground: Colors.white,
+    cursor: const Color(0xFF61AFEF),
+    selection: const Color(0x4061AFEF),
+    foreground: const Color(0xFFABB2BF),
     background: Colors.black,
-    black: Colors.black,
-    white: Colors.white,
-    red: Colors.red,
-    green: Colors.green,
-    yellow: Colors.yellow,
-    blue: Colors.blue,
-    magenta: const Color(0xFFFF00FF),
-    cyan: Colors.cyan,
-    brightBlack: Colors.grey,
-    brightRed: Colors.redAccent,
-    brightGreen: Colors.greenAccent,
-    brightYellow: Colors.yellowAccent,
-    brightBlue: Colors.blueAccent,
-    brightMagenta: const Color(0xFFFF79C6),
-    brightCyan: Colors.cyanAccent,
-    brightWhite: Colors.white,
-    searchHitBackground: Colors.yellow,
-    searchHitBackgroundCurrent: Colors.orange,
+    black: const Color(0xFF3F4451),
+    white: const Color(0xFFABB2BF),
+    red: const Color(0xFFE06C75),
+    green: const Color(0xFF98C379),
+    yellow: const Color(0xFFE5C07B),
+    blue: const Color(0xFF61AFEF),
+    magenta: const Color(0xFFC678DD),
+    cyan: const Color(0xFF56B6C2),
+    brightBlack: const Color(0xFF5C6370),
+    brightRed: const Color(0xFFE06C75),
+    brightGreen: const Color(0xFF98C379),
+    brightYellow: const Color(0xFFE5C07B),
+    brightBlue: const Color(0xFF61AFEF),
+    brightMagenta: const Color(0xFFC678DD),
+    brightCyan: const Color(0xFF56B6C2),
+    brightWhite: const Color(0xFFFFFFFF),
+    searchHitBackground: const Color(0xFFE5C07B),
+    searchHitBackgroundCurrent: const Color(0xFFE06C75),
     searchHitForeground: Colors.black,
   );
 
@@ -107,6 +101,15 @@ class _TerminalViewState extends State<TerminalView>
     WidgetsBinding.instance.addObserver(this);
     _focusNode.addListener(_onFocusChange);
     widget.session.terminal.addListener(_onTerminalChange);
+    _historyScrollController.addListener(_onHistoryScroll);
+  }
+
+  void _onHistoryScroll() {
+    if (!_historyMode || !_historyScrollController.hasClients) return;
+    final pos = _historyScrollController.position;
+    if (pos.pixels > pos.maxScrollExtent + 36) {
+      _exitHistory();
+    }
   }
 
   void _onTerminalChange() {
@@ -137,12 +140,15 @@ class _TerminalViewState extends State<TerminalView>
 
   @override
   void dispose() {
+    _flingController.dispose();
     _wheelTimeout?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _focusNode.removeListener(_onFocusChange);
     widget.session.terminal.removeListener(_onTerminalChange);
+    _historyScrollController.removeListener(_onHistoryScroll);
     _scrollController.dispose();
     _historyScrollController.dispose();
+    _termController.dispose();
     _focusNode.dispose();
     super.dispose();
   }
@@ -171,33 +177,28 @@ class _TerminalViewState extends State<TerminalView>
     if (event.kind == PointerDeviceKind.touch) {
       _pointerDownPos = event.position;
       _scrollAccum = 0;
-      _ScrollDbg.downs++;
+      _flingController.stop();
+      _velocityTracker = VelocityTracker.withKind(event.kind);
+      _velocityTracker!.addPosition(event.timeStamp, event.position);
+      _scrollController.jumpTo(_scrollController.offset);
     }
   }
 
   void _handlePointerMove(PointerMoveEvent event) {
     if (event.kind != PointerDeviceKind.touch) return;
+    if (_termController.selection != null) return;
     if (_historyLoading) return;
-    if (_historyMode) {
-      _scrollAccum += event.delta.dy;
-      if (_scrollAccum.abs() < _scrollStep) return;
-      final down = _scrollAccum < 0;
-      _scrollAccum = 0;
-      if (down && _historyScrollController.hasClients) {
-        final pos = _historyScrollController.position;
-        if (pos.pixels >= pos.maxScrollExtent - 1.0) {
-          _exitHistory();
-        }
-      }
+    if (_historyMode) return;
+    if (widget.session.terminal.mouseMode == xterm.MouseMode.none) {
+      _velocityTracker?.addPosition(event.timeStamp, event.position);
+      _scrollNormalBuffer(event.delta.dy);
       return;
     }
-    _ScrollDbg.moves++;
-    _ScrollDbg.lastDy = event.delta.dy;
     _scrollAccum += event.delta.dy;
     if (_scrollAccum.abs() < _scrollStep) return;
     final up = _scrollAccum > 0;
     _scrollAccum = 0;
-    if (up && widget.session.terminal.mouseMode != xterm.MouseMode.none) {
+    if (up) {
       _enterHistory();
       return;
     }
@@ -205,41 +206,50 @@ class _TerminalViewState extends State<TerminalView>
   }
 
   void _sendWheel(bool up) {
-    final terminal = widget.session.terminal;
-    _ScrollDbg.steps++;
-    _ScrollDbg.mode = terminal.mouseMode.toString();
-    if (terminal.mouseMode != xterm.MouseMode.none) {
-      if (_wheelInFlight) {
-        _ScrollDbg.path = 'skip(inflight)';
-        return;
-      }
-      _wheelInFlight = true;
-      _wheelTimeout?.cancel();
-      _wheelTimeout = Timer(const Duration(milliseconds: 200), () {
-        _wheelInFlight = false;
-      });
-      final code = up ? 64 : 65;
-      widget.session.sendKey('\x1b[<$code;1;1M');
-      _ScrollDbg.handled = 'sgr';
-      _ScrollDbg.path = 'wheel>tmux';
-    } else {
-      _ScrollDbg.path = 'normal';
-      _ScrollDbg.handled = 'n/a';
-      _scrollNormalBuffer(up);
-    }
+    if (_wheelInFlight) return;
+    _wheelInFlight = true;
+    _wheelTimeout?.cancel();
+    _wheelTimeout = Timer(const Duration(milliseconds: 200), () {
+      _wheelInFlight = false;
+    });
+    final code = up ? 64 : 65;
+    widget.session.sendKey('\x1b[<$code;1;1M');
   }
 
-  void _scrollNormalBuffer(bool up) {
+  void _scrollNormalBuffer(double dy) {
     if (!_scrollController.hasClients) return;
-    final step = _scrollStep * 3.0;
     final max = _scrollController.position.maxScrollExtent;
     if (max <= 0) return;
-    final current = _scrollController.offset;
-    final newOffset = up
-        ? (current - step).clamp(0.0, max)
-        : (current + step).clamp(0.0, max);
+    final newOffset = (_scrollController.offset - dy).clamp(0.0, max);
     _scrollController.jumpTo(newOffset);
+    final wasUp = _userScrolledUp;
     _userScrolledUp = newOffset < max - 1.0;
+    if (wasUp != _userScrolledUp) setState(() {});
+  }
+
+  void _startFling(double velocity) {
+    if (!_scrollController.hasClients) return;
+    final max = _scrollController.position.maxScrollExtent;
+    if (max <= 0) return;
+    final sim = ClampingScrollSimulation(
+      position: _scrollController.offset,
+      velocity: -velocity,
+    );
+    _flingController.animateWith(sim);
+  }
+
+  void _onFlingTick() {
+    if (!_scrollController.hasClients) {
+      _flingController.stop();
+      return;
+    }
+    final max = _scrollController.position.maxScrollExtent;
+    final v = _flingController.value.clamp(0.0, max);
+    _scrollController.jumpTo(v);
+    final wasUp = _userScrolledUp;
+    _userScrolledUp = v < max - 1.0;
+    if (wasUp != _userScrolledUp) setState(() {});
+    if (v <= 0.0 || v >= max) _flingController.stop();
   }
 
   // --- History overlay (capture-pane local scroll) ---
@@ -250,7 +260,6 @@ class _TerminalViewState extends State<TerminalView>
       // Full history not preloaded yet — show a minimal loading bar and wait
       // for the in-flight (or freshly started) silent prefetch to finish.
       setState(() => _historyLoading = true);
-      _ScrollDbg.path = 'capture…';
       if (!_prefetching) _prefetchHistory();
       await _prefetchOp;
       if (!mounted) return;
@@ -258,8 +267,8 @@ class _TerminalViewState extends State<TerminalView>
     }
     if (_historyTerminal == null) return;
     setState(() => _historyMode = true);
+    HapticFeedback.lightImpact();
     _scrollHistoryToBottom();
-    _ScrollDbg.path = 'history';
   }
 
   // Silent full-history capture. Runs on tmux connect and on stale exit. Builds
@@ -304,7 +313,7 @@ class _TerminalViewState extends State<TerminalView>
 
   void _exitHistory() {
     setState(() => _historyMode = false);
-    _ScrollDbg.path = 'live';
+    HapticFeedback.lightImpact();
     final age = _historyCapturedAt;
     if (age != null && DateTime.now().difference(age).inSeconds > 5) {
       _prefetchHistory();
@@ -314,10 +323,21 @@ class _TerminalViewState extends State<TerminalView>
   void _handlePointerUp(PointerUpEvent event) {
     if (event.kind == PointerDeviceKind.touch && _pointerDownPos != null) {
       final distance = (event.position - _pointerDownPos!).distance;
-      if (distance < _tapSlop && _focusNode.hasFocus) {
-        _hideKeyboard();
+      if (distance < _tapSlop) {
+        if (_termController.selection != null) {
+          _termController.clearSelection();
+        } else if (_focusNode.hasFocus) {
+          _hideKeyboard();
+        }
+      } else if (distance >= _tapSlop &&
+          !_historyMode &&
+          _termController.selection == null &&
+          widget.session.terminal.mouseMode == xterm.MouseMode.none) {
+        final v = _velocityTracker?.getVelocity().pixelsPerSecond.dy ?? 0;
+        if (v.abs() > 50) _startFling(v);
       }
     }
+    _velocityTracker = null;
     _pointerDownPos = null;
     _scrollAccum = 0;
   }
@@ -338,6 +358,7 @@ class _TerminalViewState extends State<TerminalView>
                   child: xterm.TerminalView(
                     widget.session.terminal,
                     key: _terminalViewKey,
+                    controller: _termController,
                     scrollController: _scrollController,
                     focusNode: _focusNode,
                     autofocus: false,
@@ -353,31 +374,65 @@ class _TerminalViewState extends State<TerminalView>
                     children: [
                       Container(
                         height: 32,
-                        color: Colors.black87,
+                        decoration: const BoxDecoration(
+                          color: Color(0xFF1A1A1A),
+                          border: Border(
+                            bottom: BorderSide(
+                              color: Color(0xFF3A3A3A),
+                              width: 0.5,
+                            ),
+                          ),
+                        ),
                         padding: const EdgeInsets.symmetric(horizontal: 10),
                         child: Row(
                           children: [
+                            const Icon(
+                              Icons.history,
+                              color: Colors.white54,
+                              size: 15,
+                            ),
+                            const SizedBox(width: 5),
                             const Text(
-                              '⏪ 历史回看',
+                              '历史回看',
                               style: TextStyle(
-                                color: Colors.white70,
+                                color: Colors.white54,
                                 fontSize: 12,
+                                fontWeight: FontWeight.w500,
                               ),
                             ),
                             const Spacer(),
                             GestureDetector(
                               behavior: HitTestBehavior.opaque,
                               onTap: _exitHistory,
-                              child: const Padding(
-                                padding: EdgeInsets.symmetric(
-                                    horizontal: 8, vertical: 6),
-                                child: Text(
-                                  '返回实时 ▶',
-                                  style: TextStyle(
-                                    color: Colors.greenAccent,
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w600,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 10, vertical: 4),
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: const Color(0xFF34C759),
+                                    width: 1.0,
                                   ),
+                                ),
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      'LIVE',
+                                      style: TextStyle(
+                                        color: Color(0xFF34C759),
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w700,
+                                        letterSpacing: 0.5,
+                                      ),
+                                    ),
+                                    SizedBox(width: 3),
+                                    Icon(
+                                      Icons.arrow_forward,
+                                      color: Color(0xFF34C759),
+                                      size: 13,
+                                    ),
+                                  ],
                                 ),
                               ),
                             ),
@@ -404,16 +459,69 @@ class _TerminalViewState extends State<TerminalView>
                   right: 0,
                   child: LinearProgressIndicator(minHeight: 2),
                 ),
+              Positioned(
+                right: 14,
+                bottom: 14,
+                child: IgnorePointer(
+                  ignoring: !(_userScrolledUp && !_historyMode),
+                  child: AnimatedScale(
+                    scale: (_userScrolledUp && !_historyMode) ? 1.0 : 0.7,
+                    duration: const Duration(milliseconds: 180),
+                    curve: Curves.easeOut,
+                    child: AnimatedOpacity(
+                      opacity: (_userScrolledUp && !_historyMode) ? 1.0 : 0.0,
+                      duration: const Duration(milliseconds: 180),
+                      curve: Curves.easeOut,
+                      child: GestureDetector(
+                        onTap: () {
+                          HapticFeedback.lightImpact();
+                          _flingController.stop();
+                          if (_scrollController.hasClients) {
+                            _scrollController.jumpTo(
+                                _scrollController.position.maxScrollExtent);
+                          }
+                          setState(() => _userScrolledUp = false);
+                        },
+                        child: Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF2A2A2A),
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: const Color(0xFF5AC8FA),
+                              width: 1.5,
+                            ),
+                            boxShadow: const [
+                              BoxShadow(
+                                color: Colors.black54,
+                                blurRadius: 8,
+                                offset: Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: const Icon(
+                            Icons.keyboard_arrow_down,
+                            color: Color(0xFF5AC8FA),
+                            size: 24,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
             ],
             ),
           ),
         ),
-        _InputBar(
-          hasFocus: _focusNode.hasFocus,
-          onTap: _showKeyboard,
-        ),
+        if (!_focusNode.hasFocus)
+          _InputBar(
+            onTap: _showKeyboard,
+          ),
         _ToolbarWrapper(
           session: widget.session,
+          termController: _termController,
           terminalViewKey: _terminalViewKey,
           onHideKeyboard: _hideKeyboard,
           onShowKeyboard: _showKeyboard,
@@ -423,92 +531,10 @@ class _TerminalViewState extends State<TerminalView>
   }
 }
 
-class _DebugBar extends StatefulWidget {
-  final TerminalSession session;
-  final ScrollController scrollController;
-
-  const _DebugBar({
-    required this.session,
-    required this.scrollController,
-  });
-
-  @override
-  State<_DebugBar> createState() => _DebugBarState();
-}
-
-class _DebugBarState extends State<_DebugBar> {
-  Timer? _timer;
-
-  @override
-  void initState() {
-    super.initState();
-    _timer = Timer.periodic(const Duration(milliseconds: 500), (_) {
-      if (mounted) setState(() {});
-    });
-  }
-
-  @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final t = widget.session.terminal;
-    final alt = t.isUsingAltBuffer;
-    final lines = t.buffer.lines.length;
-    final vh = t.viewHeight;
-    final vw = t.viewWidth;
-    final mouse = t.mouseMode;
-
-    String scrollInfo = 'no clients';
-    if (widget.scrollController.hasClients) {
-      final pos = widget.scrollController.position;
-      scrollInfo = 'off=${pos.pixels.toStringAsFixed(0)}'
-          ' max=${pos.maxScrollExtent.toStringAsFixed(0)}';
-    }
-
-    return Container(
-      height: 40,
-      color: Colors.red[900],
-      padding: const EdgeInsets.symmetric(horizontal: 6),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: Alignment.centerLeft,
-            child: Text(
-              'alt=$alt lines=$lines vh=$vh vw=$vw mouse=$mouse $scrollInfo',
-              style: const TextStyle(color: Colors.white, fontSize: 9),
-            ),
-          ),
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: Alignment.centerLeft,
-            child: Text(
-              'dn=${_ScrollDbg.downs} mv=${_ScrollDbg.moves} st=${_ScrollDbg.steps} '
-              'dy=${_ScrollDbg.lastDy.toStringAsFixed(1)} '
-              'mode=${_ScrollDbg.mode} hdl=${_ScrollDbg.handled} path=${_ScrollDbg.path}',
-              style: const TextStyle(color: Colors.yellowAccent, fontSize: 9),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _InputBar extends StatelessWidget {
-  final bool hasFocus;
   final VoidCallback onTap;
 
-  const _InputBar({
-    required this.hasFocus,
-    required this.onTap,
-  });
+  const _InputBar({required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -516,20 +542,25 @@ class _InputBar extends StatelessWidget {
       onTap: onTap,
       child: Container(
         height: 36,
-        color: Colors.grey[850],
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        child: Row(
+        decoration: const BoxDecoration(
+          color: Color(0xFF1A1A1A),
+          border: Border(
+            top: BorderSide(color: Color(0xFF2A2A2A), width: 0.5),
+          ),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        child: const Row(
           children: [
             Icon(
-              hasFocus ? Icons.keyboard : Icons.keyboard_outlined,
-              color: hasFocus ? Colors.blue : Colors.grey[500],
+              Icons.keyboard_outlined,
+              color: Colors.white38,
               size: 18,
             ),
-            const SizedBox(width: 8),
+            SizedBox(width: 8),
             Text(
-              hasFocus ? 'Typing...' : 'Tap to type',
+              '点按输入命令',
               style: TextStyle(
-                color: hasFocus ? Colors.blue : Colors.grey[500],
+                color: Colors.white38,
                 fontSize: 13,
               ),
             ),
@@ -542,11 +573,13 @@ class _InputBar extends StatelessWidget {
 
 class _ToolbarWrapper extends StatefulWidget {
   final TerminalSession session;
+  final xterm.TerminalController termController;
   final GlobalKey<xterm.TerminalViewState> terminalViewKey;
   final VoidCallback onHideKeyboard;
   final VoidCallback onShowKeyboard;
   const _ToolbarWrapper({
     required this.session,
+    required this.termController,
     required this.terminalViewKey,
     required this.onHideKeyboard,
     required this.onShowKeyboard,
@@ -654,13 +687,20 @@ class _ToolbarWrapperState extends State<_ToolbarWrapper> {
       },
       onCopyTerminal: () {
         final terminal = widget.session.terminal;
-        final buffer = terminal.buffer;
-        final lines = <String>[];
-        final scrollBack = buffer.height - terminal.viewHeight;
-        for (var i = 0; i < terminal.viewHeight; i++) {
-          lines.add(buffer.lines[i + scrollBack].toString().trimRight());
+        final selection = widget.termController.selection;
+        String text;
+        if (selection != null) {
+          text = terminal.buffer.getText(selection);
+          widget.termController.clearSelection();
+        } else {
+          final buffer = terminal.buffer;
+          final lines = <String>[];
+          final scrollBack = buffer.height - terminal.viewHeight;
+          for (var i = 0; i < terminal.viewHeight; i++) {
+            lines.add(buffer.lines[i + scrollBack].toString().trimRight());
+          }
+          text = lines.join('\n').trimRight();
         }
-        final text = lines.join('\n').trimRight();
         if (text.isNotEmpty) {
           Clipboard.setData(ClipboardData(text: text));
           ScaffoldMessenger.of(context).showSnackBar(
