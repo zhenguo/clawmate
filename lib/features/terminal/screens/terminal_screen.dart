@@ -151,6 +151,33 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     _connectAndDetectTmux();
   }
 
+  Future<bool> _confirmDisconnect() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF2A2A2A),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        title: const Text('断开连接？',
+            style: TextStyle(color: Colors.white, fontSize: 16)),
+        content: Text('将关闭与 ${widget.profile.name} 的连接。',
+            style: const TextStyle(color: Colors.white70, fontSize: 13)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消',
+                style: TextStyle(color: Color(0xFF8E8E93))),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('断开',
+                style: TextStyle(color: Color(0xFFFF3B30))),
+          ),
+        ],
+      ),
+    );
+    return ok == true;
+  }
+
   Future<void> _showTmuxSessionSheet() async {
     showModalBottomSheet(
       context: context,
@@ -185,7 +212,16 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   @override
   Widget build(BuildContext context) {
     final connected = _session.connectionState == SshConnectionState.connected;
-    return Scaffold(
+    return PopScope(
+      canPop: !connected,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        if (await _confirmDisconnect() && mounted) {
+          _session.disconnect();
+          Navigator.pop(context);
+        }
+      },
+      child: Scaffold(
       backgroundColor: const Color(0xFF1A1A1A),
       appBar: AppBar(
         backgroundColor: const Color(0xFF1A1A1A),
@@ -247,32 +283,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
             tooltip: '断开连接',
             onPressed: () async {
               HapticFeedback.lightImpact();
-              final ok = await showDialog<bool>(
-                context: context,
-                builder: (ctx) => AlertDialog(
-                  backgroundColor: const Color(0xFF2A2A2A),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14)),
-                  title: const Text('断开连接？',
-                      style: TextStyle(color: Colors.white, fontSize: 16)),
-                  content: Text('将关闭与 ${widget.profile.name} 的连接。',
-                      style: const TextStyle(
-                          color: Colors.white70, fontSize: 13)),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(ctx, false),
-                      child: const Text('取消',
-                          style: TextStyle(color: Color(0xFF8E8E93))),
-                    ),
-                    TextButton(
-                      onPressed: () => Navigator.pop(ctx, true),
-                      child: const Text('断开',
-                          style: TextStyle(color: Color(0xFFFF3B30))),
-                    ),
-                  ],
-                ),
-              );
-              if (ok == true && mounted) {
+              if (await _confirmDisconnect() && mounted) {
                 _session.disconnect();
                 Navigator.pop(context);
               }
@@ -369,6 +380,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
           ],
         ),
       ),
+    ),
     );
   }
 }
