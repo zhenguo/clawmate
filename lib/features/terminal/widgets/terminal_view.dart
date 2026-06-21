@@ -657,7 +657,11 @@ class _TerminalViewState extends State<TerminalView>
           // This tap only halted coasting momentum (iOS convention) — don't
           // also fire the keyboard toggle the user didn't ask for.
         } else if (_historyMode) {
-          // history overlay owns its own tap/selection gestures
+          // A tap on empty scrollback dismisses a lingering selection (and its
+          // copy pill); xterm keeps its own long-press/drag selection gestures.
+          if (_historyController.selection != null) {
+            _historyController.clearSelection();
+          }
         } else if (_termController.selection != null) {
           _termController.clearSelection();
         } else if (_focusNode.hasFocus) {
