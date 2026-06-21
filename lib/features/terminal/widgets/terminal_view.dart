@@ -544,6 +544,7 @@ class _TerminalViewState extends State<TerminalView>
     if (!_prefetching) _prefetchHistory();
     await _prefetchOp;
     if (!mounted) return;
+    if (!mounted || !_historyLoading) return;
     setState(() => _historyLoading = false);
     if (_historyTerminal == null) {
       _historySnack('暂无历史内容');
@@ -860,18 +861,18 @@ class _TerminalViewState extends State<TerminalView>
                       ),
               ),
               if (_historyLoading)
-                const Positioned.fill(
+                Positioned.fill(
                   child: ColoredBox(
-                    color: Color(0xFF1A1A1A),
+                    color: const Color(0xFF1A1A1A),
                     child: Column(
                       children: [
-                        _HistoryHeaderBar(),
+                        const _HistoryHeaderBar(),
                         Expanded(
                           child: Center(
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                SizedBox(
+                                const SizedBox(
                                   width: 22,
                                   height: 22,
                                   child: CircularProgressIndicator(
@@ -880,12 +881,42 @@ class _TerminalViewState extends State<TerminalView>
                                         Color(0xFF5AC8FA)),
                                   ),
                                 ),
-                                SizedBox(height: 14),
-                                Text(
+                                const SizedBox(height: 14),
+                                const Text(
                                   '正在加载历史…',
                                   style: TextStyle(
                                     color: Colors.white38,
                                     fontSize: 13,
+                                  ),
+                                ),
+                                const SizedBox(height: 20),
+                                _PressableScale(
+                                  onTap: () {
+                                    // Flip the flag so the in-flight await in
+                                    // _enterHistory short-circuits (guard checks
+                                    // !_historyLoading); the capture itself keeps
+                                    // running in the background to warm the cache.
+                                    setState(() => _historyLoading = false);
+                                  },
+                                  builder: (pressed) => Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 16, vertical: 7),
+                                    decoration: BoxDecoration(
+                                      color: pressed
+                                          ? const Color(0xFF3A3A3A)
+                                          : const Color(0xFF2A2A2A),
+                                      borderRadius: BorderRadius.circular(16),
+                                    ),
+                                    child: Text(
+                                      '取消',
+                                      style: TextStyle(
+                                        color: pressed
+                                            ? Colors.white
+                                            : Colors.white60,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
                                   ),
                                 ),
                               ],
