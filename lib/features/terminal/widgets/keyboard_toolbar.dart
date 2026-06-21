@@ -47,8 +47,8 @@ class KeyboardToolbar extends StatefulWidget {
 
 class _KeyboardToolbarState extends State<KeyboardToolbar> {
   final _scrollController = ScrollController();
-  bool _showRightFade = true;
-  bool _showLeftFade = false;
+  final ValueNotifier<bool> _showRightFade = ValueNotifier(true);
+  final ValueNotifier<bool> _showLeftFade = ValueNotifier(false);
 
   @override
   void initState() {
@@ -61,6 +61,8 @@ class _KeyboardToolbarState extends State<KeyboardToolbar> {
   void dispose() {
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
+    _showRightFade.dispose();
+    _showLeftFade.dispose();
     super.dispose();
   }
 
@@ -68,18 +70,8 @@ class _KeyboardToolbarState extends State<KeyboardToolbar> {
     if (!_scrollController.hasClients) return;
     final offset = _scrollController.offset;
     final max = _scrollController.position.maxScrollExtent;
-    final atEnd = offset >= max - 8;
-    final atStart = offset <= 8;
-    bool changed = false;
-    if (atEnd != !_showRightFade) {
-      _showRightFade = !atEnd;
-      changed = true;
-    }
-    if (atStart != !_showLeftFade) {
-      _showLeftFade = !atStart;
-      changed = true;
-    }
-    if (changed) setState(() {});
+    _showRightFade.value = offset < max - 8;
+    _showLeftFade.value = offset > 8;
   }
 
   @override
@@ -160,17 +152,21 @@ class _KeyboardToolbarState extends State<KeyboardToolbar> {
             bottom: 0,
             width: 36,
             child: IgnorePointer(
-              child: AnimatedOpacity(
-                opacity: _showRightFade ? 1.0 : 0.0,
-                duration: const Duration(milliseconds: 160),
-                curve: Curves.easeOut,
-                child: DecoratedBox(
+              child: ValueListenableBuilder<bool>(
+                valueListenable: _showRightFade,
+                builder: (context, visible, child) => AnimatedOpacity(
+                  opacity: visible ? 1.0 : 0.0,
+                  duration: const Duration(milliseconds: 160),
+                  curve: Curves.easeOut,
+                  child: child,
+                ),
+                child: const DecoratedBox(
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       begin: Alignment.centerLeft,
                       end: Alignment.centerRight,
                       colors: [
-                        KeyboardToolbar._bg.withValues(alpha: 0),
+                        Color(0x001A1A1A),
                         KeyboardToolbar._bg,
                       ],
                     ),
@@ -185,17 +181,21 @@ class _KeyboardToolbarState extends State<KeyboardToolbar> {
             bottom: 0,
             width: 36,
             child: IgnorePointer(
-              child: AnimatedOpacity(
-                opacity: _showLeftFade ? 1.0 : 0.0,
-                duration: const Duration(milliseconds: 160),
-                curve: Curves.easeOut,
-                child: DecoratedBox(
+              child: ValueListenableBuilder<bool>(
+                valueListenable: _showLeftFade,
+                builder: (context, visible, child) => AnimatedOpacity(
+                  opacity: visible ? 1.0 : 0.0,
+                  duration: const Duration(milliseconds: 160),
+                  curve: Curves.easeOut,
+                  child: child,
+                ),
+                child: const DecoratedBox(
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       begin: Alignment.centerRight,
                       end: Alignment.centerLeft,
                       colors: [
-                        KeyboardToolbar._bg.withValues(alpha: 0),
+                        Color(0x001A1A1A),
                         KeyboardToolbar._bg,
                       ],
                     ),
