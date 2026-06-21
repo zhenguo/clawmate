@@ -234,12 +234,14 @@ class _TerminalViewState extends State<TerminalView>
     _scrollAccum += event.delta.dy;
     _scrollAccumX += event.delta.dx.abs();
     if (_scrollAccum > 0) {
-      // History direction: accumulate freely until a deliberate,
-      // vertical-dominant pull crosses the threshold. Upward movement is
-      // reserved for history, so never emit wheel events here.
-      if (_scrollAccum >= _historyEnterThreshold &&
-          _scrollAccumX < _scrollAccum * 0.5) {
-        _enterHistory();
+      // Pull-down-to-reveal-history. The remote owns the scrollback, so the
+      // live view can't scroll here — instead rubber-band it down as the user
+      // pulls, so crossing into history feels physical instead of a dead 48px
+      // snap. Vertical-dominant pulls only; release before the threshold
+      // springs back via _handlePointerUp.
+      if (_scrollAccumX < _scrollAccum * 0.5) {
+        _addOverscroll(event.delta.dy);
+        if (_scrollAccum >= _historyEnterThreshold) _enterHistory();
       }
       return;
     }
