@@ -109,8 +109,8 @@ class _KeyboardToolbarState extends State<KeyboardToolbar> {
                 _IconKey(Icons.keyboard_arrow_up, () => widget.onKeyTap('\x1b[A'), tooltip: '↑', repeat: true),
                 _IconKey(Icons.keyboard_arrow_down, () => widget.onKeyTap('\x1b[B'), tooltip: '↓', repeat: true),
                 _IconKey(Icons.keyboard_arrow_right, () => widget.onKeyTap('\x1b[C'), tooltip: '→', repeat: true),
-                _IconKey(Icons.keyboard_double_arrow_up, () => widget.onKeyTap('\x1b[5~'), tooltip: 'PgUp'),
-                _IconKey(Icons.keyboard_double_arrow_down, () => widget.onKeyTap('\x1b[6~'), tooltip: 'PgDn'),
+                _IconKey(Icons.keyboard_double_arrow_up, () => widget.onKeyTap('\x1b[5~'), tooltip: 'PgUp', repeat: true),
+                _IconKey(Icons.keyboard_double_arrow_down, () => widget.onKeyTap('\x1b[6~'), tooltip: 'PgDn', repeat: true),
                 _IconKey(Icons.backspace_outlined, () => widget.onKeyTap('\x7f'), repeat: true),
                 const _GroupDivider(),
                 // --- Editing ---
