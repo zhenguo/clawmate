@@ -529,6 +529,10 @@ class TerminalSession {
   }) async {
     final previousTmux = _lastTmuxSession;
     resetTransport();
+    // Fresh transport lands on a plain shell. Until a reattach is confirmed
+    // below, we are NOT in tmux — leaving this true would let the pull-down
+    // history gesture fire on a bare shell when the old session is gone.
+    inTmuxSession.value = false;
     onProgress?.call('Initializing...');
     await connect(onProgress: onProgress);
     if (isConnected && previousTmux != null) {
@@ -538,6 +542,7 @@ class TerminalSession {
       if (sessions.contains(previousTmux)) {
         _lastTmuxSession = previousTmux;
         _write('export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8; tmux set -g mouse on 2>/dev/null; tmux -u attach-session -t $previousTmux\n');
+        inTmuxSession.value = true;
       }
     }
   }
