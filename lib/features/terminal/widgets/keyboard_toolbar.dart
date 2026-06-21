@@ -109,7 +109,8 @@ class _KeyboardToolbarState extends State<KeyboardToolbar> {
                 ),
                 _TextKey('Esc', () => widget.onKeyTap('\x1b')),
                 _TextKey('^C', () => widget.onKeyTap('\x03')),
-                _IconKey(Icons.keyboard_return, () => widget.onKeyTap('\r')),
+                _IconKey(Icons.keyboard_return, () => widget.onKeyTap('\r'),
+                    accent: KeyboardToolbar._accentColor),
                 const _GroupDivider(),
                 // --- Navigation ---
                 _IconKey(Icons.keyboard_arrow_left, () => widget.onKeyTap('\x1b[D'), tooltip: '←', repeat: true),
@@ -300,8 +301,10 @@ class _IconKey extends StatefulWidget {
   final VoidCallback? onTap;
   final String? tooltip;
   final bool repeat;
+  final Color? accent;
 
-  const _IconKey(this.icon, this.onTap, {this.tooltip, this.repeat = false});
+  const _IconKey(this.icon, this.onTap,
+      {this.tooltip, this.repeat = false, this.accent});
 
   @override
   State<_IconKey> createState() => _IconKeyState();
@@ -328,14 +331,20 @@ class _IconKeyState extends State<_IconKey> with _RepeatableKey {
           alignment: Alignment.center,
           margin: const EdgeInsets.symmetric(horizontal: 2),
           decoration: BoxDecoration(
-            color: _pressed
-                ? KeyboardToolbar._keyPressColor
-                : KeyboardToolbar._keyColor,
+            color: widget.accent != null
+                ? (_pressed
+                    ? widget.accent!.withValues(alpha: 0.35)
+                    : widget.accent!.withValues(alpha: 0.2))
+                : (_pressed
+                    ? KeyboardToolbar._keyPressColor
+                    : KeyboardToolbar._keyColor),
             borderRadius: BorderRadius.circular(6),
           ),
           child: Icon(
             widget.icon,
-            color: _pressed ? Colors.white : Colors.white70,
+            color: widget.accent != null
+                ? (_pressed ? Colors.white : widget.accent!)
+                : (_pressed ? Colors.white : Colors.white70),
             size: KeyboardToolbar._iconSize,
           ),
         ),
