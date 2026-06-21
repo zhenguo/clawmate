@@ -435,15 +435,11 @@ class _TerminalViewState extends State<TerminalView>
     widget.session.sendKey(buf.toString());
   }
 
-  // Momentum for live tmux scrolling. The remote owns the scrollback, so each
-  // notch is a discrete wheel event — without this, a flick stops dead on
-  // finger-lift. Emit decaying wheel-down notches on an iOS-like deceleration
-  // curve so a fast flick coasts through a pager. Down-only: the up direction
-  // is reserved for entering the history overlay.
   void _startWheelFling(double velocityDy) {
     _stopWheelFling();
     _wheelFlingVel = velocityDy;
     _wheelFlingAccum = 0;
+    final up = velocityDy > 0;
     _wheelFlingTimer = Timer.periodic(const Duration(milliseconds: 32), (_) {
       const dt = 0.032;
       const friction = 0.90;
@@ -456,7 +452,7 @@ class _TerminalViewState extends State<TerminalView>
       if (_wheelFlingAccum >= _scrollStep) {
         final notches = (_wheelFlingAccum / _scrollStep).floor().clamp(1, 4);
         _wheelFlingAccum -= notches * _scrollStep;
-        _sendWheel(false, notches);
+        _sendWheel(up, notches);
       }
     });
   }
@@ -765,8 +761,15 @@ class _TerminalViewState extends State<TerminalView>
           _termController.selection == null &&
           widget.session.terminal.mouseMode != xterm.MouseMode.none) {
         final v = _velocityTracker?.getVelocity().pixelsPerSecond.dy ?? 0;
-        // Down-direction only (finger flicked up); up enters history.
-        if (v < -150) _startWheelFling(v);
+        if (widget.session.inTmuxSession.value) {
+          // tmux: down-direction fling only (finger flicked up). The opposite
+          // direction is reserved for pulling the history overlay in.
+          if (v < -150) _startWheelFling(v);
+        } else {
+          // Non-tmux mouse app (vim/htop/less): no history overlay claims the
+          // up direction, so let momentum coast both ways like a real pager.
+          if (v.abs() > 150) _startWheelFling(v);
+        }
       }
     }
     _velocityTracker = null;
