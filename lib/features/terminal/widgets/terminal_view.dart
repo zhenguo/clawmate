@@ -743,11 +743,23 @@ class _TerminalViewState extends State<TerminalView>
                   ),
                 ),
               AnimatedSwitcher(
-                duration: const Duration(milliseconds: 200),
+                duration: const Duration(milliseconds: 220),
                 transitionBuilder: (child, animation) {
+                  // History is revealed by pulling down from the top, so slide
+                  // it in from slightly above instead of a flat cross-fade —
+                  // the motion follows the gesture's mental model.
                   return FadeTransition(
                     opacity: animation,
-                    child: child,
+                    child: SlideTransition(
+                      position: Tween<Offset>(
+                        begin: const Offset(0, -0.04),
+                        end: Offset.zero,
+                      ).animate(CurvedAnimation(
+                        parent: animation,
+                        curve: Curves.easeOutCubic,
+                      )),
+                      child: child,
+                    ),
                   );
                 },
                 child: (_historyMode && _historyTerminal != null)
