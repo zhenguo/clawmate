@@ -311,29 +311,58 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                 ),
               ),
             if (_initialConnectFailed)
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 48,
+              Positioned.fill(
                 child: Center(
-                  child: GestureDetector(
-                    onTap: _retryConnect,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF2A2A2A),
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: const Color(0xFF5AC8FA), width: 1),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.cloud_off_rounded,
+                          color: Color(0xFFFF9F0A), size: 44),
+                      const SizedBox(height: 16),
+                      Text(
+                        '无法连接到 ${widget.profile.name}',
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600),
                       ),
-                      child: const Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.refresh, color: Color(0xFF5AC8FA), size: 18),
-                          SizedBox(width: 6),
-                          Text('重新连接', style: TextStyle(color: Color(0xFF5AC8FA), fontSize: 14, fontWeight: FontWeight.w600)),
-                        ],
+                      const SizedBox(height: 8),
+                      const Text(
+                        '请检查网络与服务器状态后重试',
+                        style:
+                            TextStyle(color: Colors.white38, fontSize: 13),
                       ),
-                    ),
+                      const SizedBox(height: 24),
+                      GestureDetector(
+                        onTap: () {
+                          HapticFeedback.selectionClick();
+                          _retryConnect();
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 20, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF2A2A2A),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                                color: const Color(0xFF5AC8FA), width: 1),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.refresh,
+                                  color: Color(0xFF5AC8FA), size: 18),
+                              SizedBox(width: 6),
+                              Text('重新连接',
+                                  style: TextStyle(
+                                      color: Color(0xFF5AC8FA),
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w600)),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
