@@ -361,13 +361,18 @@ class _TerminalViewState extends State<TerminalView>
       return;
     }
     final max = _scrollController.position.maxScrollExtent;
-    final v = _flingController.value.clamp(0.0, max);
-    _scrollController.jumpTo(v);
+    final raw = _flingController.value;
+    final clamped = raw.clamp(0.0, max);
+    _scrollController.jumpTo(clamped);
+    // Route the bouncing simulation's beyond-bounds travel into the visual
+    // rubber-band instead of clipping it, so a fast flick bounces like iOS.
+    final target =
+        (-(raw - clamped)).clamp(-_kMaxOverscroll, _kMaxOverscroll);
+    if (_overscroll != target) setState(() => _overscroll = target);
     final wasUp = _userScrolledUp;
-    _userScrolledUp = v < max - 1.0;
+    _userScrolledUp = clamped < max - 1.0;
     if (!_userScrolledUp) _hasNewOutput = false;
     if (wasUp != _userScrolledUp) setState(() {});
-    if (v <= 0.0 || v >= max) _flingController.stop();
   }
 
   // --- History overlay (capture-pane local scroll) ---
