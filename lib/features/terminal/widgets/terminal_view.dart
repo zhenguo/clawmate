@@ -4,6 +4,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:xterm/xterm.dart' as xterm;
 
@@ -85,10 +86,17 @@ class _TerminalViewState extends State<TerminalView>
   final _historyScrollController = ScrollController();
   final _historyController = xterm.TerminalController();
 
-  static const _kTermStyle = xterm.TerminalStyle(
-    fontSize: 12,
+  double _fontSize = 12.0;
+  static const _kMinFontSize = 8.0;
+  static const _kMaxFontSize = 24.0;
+  final Map<int, Offset> _activePointers = {};
+  double? _pinchBaseDistance;
+  double? _pinchBaseFontSize;
+
+  xterm.TerminalStyle get _termStyle => xterm.TerminalStyle(
+    fontSize: _fontSize,
     fontFamily: 'Menlo',
-    fontFamilyFallback: [
+    fontFamilyFallback: const [
       'Menlo',
       'Courier New',
       'PingFang SC',
@@ -135,6 +143,20 @@ class _TerminalViewState extends State<TerminalView>
     widget.session.terminal.addListener(_onTerminalChange);
     _historyScrollController.addListener(_onHistoryScroll);
     _termController.addListener(_onSelectionChange);
+    _loadFontSize();
+  }
+
+  Future<void> _loadFontSize() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getDouble('terminal_font_size');
+    if (saved != null && mounted) {
+      setState(() => _fontSize = saved.clamp(_kMinFontSize, _kMaxFontSize));
+    }
+  }
+
+  Future<void> _saveFontSize() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble('terminal_font_size', _fontSize);
   }
 
   void _onSelectionChange() {
@@ -241,6 +263,11 @@ class _TerminalViewState extends State<TerminalView>
 
   void _handlePointerDown(PointerDownEvent event) {
     if (event.kind == PointerDeviceKind.touch) {
+      _activePointers[event.pointer] = event.position;
+      if (_activePointers.length == 2) {
+        _pinchBaseDistance = _currentPinchDistance();
+        _pinchBaseFontSize = _fontSize;
+      }
       _pointerDownPos = event.position;
       _scrollAccum = 0;
       _scrollAccumX = 0;
@@ -256,8 +283,30 @@ class _TerminalViewState extends State<TerminalView>
     }
   }
 
+  double? _currentPinchDistance() {
+    if (_activePointers.length != 2) return null;
+    final pts = _activePointers.values.toList();
+    return (pts[0] - pts[1]).distance;
+  }
+
   void _handlePointerMove(PointerMoveEvent event) {
     if (event.kind != PointerDeviceKind.touch) return;
+    _activePointers[event.pointer] = event.position;
+    if (_activePointers.length == 2 &&
+        _pinchBaseDistance != null &&
+        _pinchBaseFontSize != null) {
+      final dist = _currentPinchDistance();
+      if (dist != null && _pinchBaseDistance! > 10) {
+        final scale = dist / _pinchBaseDistance!;
+        final newSize = (_pinchBaseFontSize! * scale)
+            .clamp(_kMinFontSize, _kMaxFontSize)
+            .roundToDouble();
+        if (newSize != _fontSize) {
+          setState(() => _fontSize = newSize);
+        }
+      }
+      return;
+    }
     if (_termController.selection != null) return;
     if (_historyLoading) return;
     if (_historyMode) return;
@@ -517,7 +566,36 @@ class _TerminalViewState extends State<TerminalView>
     showTerminalSnack(context, message);
   }
 
+  void _handlePointerCancel(PointerCancelEvent event) {
+    if (event.kind != PointerDeviceKind.touch) return;
+    final wasPinching = _pinchBaseDistance != null;
+    _activePointers.remove(event.pointer);
+    if (_activePointers.length < 2) {
+      if (wasPinching) _saveFontSize();
+      _pinchBaseDistance = null;
+      _pinchBaseFontSize = null;
+    }
+    _velocityTracker = null;
+    _pointerDownPos = null;
+    _scrollAccum = 0;
+    _scrollAccumX = 0;
+  }
+
   void _handlePointerUp(PointerUpEvent event) {
+    if (event.kind == PointerDeviceKind.touch) {
+      final wasPinching = _pinchBaseDistance != null;
+      _activePointers.remove(event.pointer);
+      if (wasPinching) {
+        _pinchBaseDistance = null;
+        _pinchBaseFontSize = null;
+        _velocityTracker = null;
+        _pointerDownPos = null;
+        _scrollAccum = 0;
+        _scrollAccumX = 0;
+        _saveFontSize();
+        return;
+      }
+    }
     if (event.kind == PointerDeviceKind.touch && _pointerDownPos != null) {
       if (_overscroll.value.abs() > 0.5) {
         _springBackOverscroll();
@@ -572,6 +650,7 @@ class _TerminalViewState extends State<TerminalView>
             onPointerDown: _handlePointerDown,
             onPointerMove: _handlePointerMove,
             onPointerUp: _handlePointerUp,
+            onPointerCancel: _handlePointerCancel,
             child: Stack(
               children: [
                 ValueListenableBuilder<double>(
@@ -599,7 +678,7 @@ class _TerminalViewState extends State<TerminalView>
                         autofocus: false,
                         deleteDetection: true,
                         keyboardType: TextInputType.text,
-                        textStyle: _kTermStyle,
+                        textStyle: _termStyle,
                         theme: _kTermTheme,
                       ),
                     ),
@@ -743,7 +822,7 @@ class _TerminalViewState extends State<TerminalView>
                               scrollController: _historyScrollController,
                               readOnly: true,
                               hardwareKeyboardOnly: true,
-                              textStyle: _kTermStyle,
+                              textStyle: _termStyle,
                               theme: _kTermTheme,
                             ),
                           ),
