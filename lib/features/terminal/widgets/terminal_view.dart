@@ -498,9 +498,15 @@ class _TerminalViewState extends State<TerminalView>
     final target =
         (-(raw - clamped)).clamp(-_kMaxOverscroll, _kMaxOverscroll);
     if (_overscroll.value != target) _overscroll.value = target;
-    if (target.abs() > 0.5 && !_flingEdgeHapticDone) {
+    // Only a genuine high-velocity slam into the boundary earns a tactile tick;
+    // a slow coast to the bottom should stay silent (iOS scroll views don't
+    // buzz on every stop). Arm the flag on first overshoot regardless so we
+    // check impact speed exactly once per fling.
+    if (target.abs() > 2.0 && !_flingEdgeHapticDone) {
       _flingEdgeHapticDone = true;
-      HapticFeedback.mediumImpact();
+      if (_flingController.velocity.abs() > 1200) {
+        HapticFeedback.lightImpact();
+      }
     }
     final wasUp = _userScrolledUp;
     _userScrolledUp = clamped < max - 1.0;
