@@ -5,7 +5,9 @@ import 'package:flutter/services.dart';
 
 class KeyboardToolbar extends StatefulWidget {
   final bool ctrlActive;
+  final bool altActive;
   final VoidCallback onCtrlToggle;
+  final VoidCallback onAltToggle;
   final ValueChanged<String> onKeyTap;
   final VoidCallback? onHideKeyboard;
   final VoidCallback? onPaste;
@@ -18,7 +20,9 @@ class KeyboardToolbar extends StatefulWidget {
   const KeyboardToolbar({
     super.key,
     required this.ctrlActive,
+    required this.altActive,
     required this.onCtrlToggle,
+    required this.onAltToggle,
     required this.onKeyTap,
     this.onHideKeyboard,
     this.onPaste,
@@ -98,6 +102,12 @@ class _KeyboardToolbarState extends State<KeyboardToolbar> {
                   active: widget.ctrlActive,
                   accentColor: KeyboardToolbar._accentColor,
                   onTap: widget.onCtrlToggle,
+                ),
+                _ToggleKey(
+                  label: 'Alt',
+                  active: widget.altActive,
+                  accentColor: KeyboardToolbar._accentColor,
+                  onTap: widget.onAltToggle,
                 ),
                 _TextKey('Esc', () => widget.onKeyTap('\x1b')),
                 _TextKey('^C', () => widget.onKeyTap('\x03')),

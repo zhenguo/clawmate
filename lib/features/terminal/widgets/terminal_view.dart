@@ -1521,11 +1521,16 @@ class _ToolbarWrapperState extends State<_ToolbarWrapper> {
     return ValueListenableBuilder<bool>(
       valueListenable: widget.session.ctrlNotifier,
       builder: (context, ctrlActive, _) {
+        return ValueListenableBuilder<bool>(
+          valueListenable: widget.session.altNotifier,
+          builder: (context, altActive, _) {
         return KeyboardToolbar(
           ctrlActive: ctrlActive,
+          altActive: altActive,
           isListening: _isListening,
           onVoiceToggle: _toggleVoice,
           onCtrlToggle: widget.session.toggleCtrl,
+          onAltToggle: widget.session.toggleAlt,
           onCopyTerminal: () {
         final terminal = widget.session.terminal;
         final selection = widget.termController.selection;
@@ -1581,6 +1586,8 @@ class _ToolbarWrapperState extends State<_ToolbarWrapper> {
         }
       },
       onPasteImage: _pasteImage,
+        );
+          },
         );
       },
     );

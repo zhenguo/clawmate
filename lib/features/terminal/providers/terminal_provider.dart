@@ -25,6 +25,7 @@ class TerminalSession {
   MoshService? _mosh;
   SshService? _helperSsh;
   final ValueNotifier<bool> ctrlNotifier = ValueNotifier(false);
+  final ValueNotifier<bool> altNotifier = ValueNotifier(false);
   String? _lastTmuxSession;
   final ValueNotifier<bool> inTmuxSession = ValueNotifier(false);
 
@@ -311,38 +312,46 @@ class TerminalSession {
   }
 
   void _onTerminalOutput(String data) {
-    if (ctrlNotifier.value) {
-      ctrlNotifier.value = false;
-      if (data.length == 1) {
-        final code = data.codeUnitAt(0);
-        if (code >= 0x61 && code <= 0x7A) {
-          _write(String.fromCharCode(code - 0x60));
-          return;
-        }
-        if (code >= 0x41 && code <= 0x5A) {
-          _write(String.fromCharCode(code - 0x40));
-          return;
-        }
-      }
-      const ctrlArrows = {
-        '\x1b[A': '\x1b[1;5A',
-        '\x1b[B': '\x1b[1;5B',
-        '\x1b[C': '\x1b[1;5C',
-        '\x1b[D': '\x1b[1;5D',
-      };
-      final modified = ctrlArrows[data];
-      if (modified != null) {
-        _write(modified);
-        return;
-      }
+    final ctrl = ctrlNotifier.value;
+    final alt = altNotifier.value;
+    if (!ctrl && !alt) {
       _write(data);
       return;
     }
-    _write(data);
+    if (ctrl) ctrlNotifier.value = false;
+    if (alt) altNotifier.value = false;
+
+    // Arrows carry an xterm modifier param: 1 + alt(2) + ctrl(4).
+    const arrowFinal = {'\x1b[A': 'A', '\x1b[B': 'B', '\x1b[C': 'C', '\x1b[D': 'D'};
+    final arrow = arrowFinal[data];
+    if (arrow != null) {
+      final mod = 1 + (alt ? 2 : 0) + (ctrl ? 4 : 0);
+      _write('\x1b[1;$mod$arrow');
+      return;
+    }
+
+    String out = data;
+    if (ctrl && data.length == 1) {
+      final code = data.codeUnitAt(0);
+      if (code >= 0x61 && code <= 0x7A) {
+        out = String.fromCharCode(code - 0x60);
+      } else if (code >= 0x41 && code <= 0x5A) {
+        out = String.fromCharCode(code - 0x40);
+      }
+    }
+    if (alt) {
+      // Meta/Alt is encoded as an ESC prefix.
+      out = '\x1b$out';
+    }
+    _write(out);
   }
 
   void toggleCtrl() {
     ctrlNotifier.value = !ctrlNotifier.value;
+  }
+
+  void toggleAlt() {
+    altNotifier.value = !altNotifier.value;
   }
 
   void sendKey(String key) {
