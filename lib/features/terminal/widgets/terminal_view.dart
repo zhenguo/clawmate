@@ -49,6 +49,7 @@ class _TerminalViewState extends State<TerminalView>
   final _scrollController = ScrollController();
   final _focusNode = FocusNode();
   final ValueNotifier<bool> _focused = ValueNotifier(false);
+  final ValueNotifier<bool> _hasSelection = ValueNotifier(false);
   bool _intentionalFocus = false;
   double _scrollAccum = 0;
   double _scrollAccumX = 0;
@@ -133,6 +134,25 @@ class _TerminalViewState extends State<TerminalView>
     _focusNode.addListener(_onFocusChange);
     widget.session.terminal.addListener(_onTerminalChange);
     _historyScrollController.addListener(_onHistoryScroll);
+    _termController.addListener(_onSelectionChange);
+  }
+
+  void _onSelectionChange() {
+    _hasSelection.value = _termController.selection != null;
+  }
+
+  void _copySelection() {
+    final sel = _termController.selection;
+    if (sel == null) return;
+    final text = widget.session.terminal.buffer.getText(sel);
+    if (text.trim().isEmpty) {
+      _termController.clearSelection();
+      return;
+    }
+    Clipboard.setData(ClipboardData(text: text));
+    _termController.clearSelection();
+    HapticFeedback.selectionClick();
+    showTerminalSnack(context, '已复制到剪贴板');
   }
 
   void _onHistoryScroll() {
@@ -189,6 +209,8 @@ class _TerminalViewState extends State<TerminalView>
     _focusNode.removeListener(_onFocusChange);
     widget.session.terminal.removeListener(_onTerminalChange);
     _historyScrollController.removeListener(_onHistoryScroll);
+    _termController.removeListener(_onSelectionChange);
+    _hasSelection.dispose();
     _scrollController.dispose();
     _historyScrollController.dispose();
     _termController.dispose();
@@ -794,6 +816,68 @@ class _TerminalViewState extends State<TerminalView>
                     _userScrolledUp = false;
                     _hasNewOutput = false;
                   });
+                },
+              ),
+              ValueListenableBuilder<bool>(
+                valueListenable: _hasSelection,
+                builder: (context, hasSelection, _) {
+                  if (_historyMode || !hasSelection) {
+                    return const SizedBox.shrink();
+                  }
+                  return Positioned(
+                    bottom: 14,
+                    left: 0,
+                    right: 0,
+                    child: Center(
+                      child: _PressableScale(
+                        onTap: _copySelection,
+                        builder: (pressed) => Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: pressed
+                                ? const Color(0xFF3A3A3A)
+                                : const Color(0xFF2A2A2A),
+                            borderRadius: BorderRadius.circular(18),
+                            border: Border.all(
+                              color: const Color(0xFF5AC8FA),
+                              width: 1.0,
+                            ),
+                            boxShadow: const [
+                              BoxShadow(
+                                color: Colors.black54,
+                                blurRadius: 8,
+                                offset: Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.copy_outlined,
+                                color: pressed
+                                    ? Colors.white
+                                    : const Color(0xFF5AC8FA),
+                                size: 16,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                '复制',
+                                style: TextStyle(
+                                  color: pressed
+                                      ? Colors.white
+                                      : const Color(0xFF5AC8FA),
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
                 },
               ),
             ],
