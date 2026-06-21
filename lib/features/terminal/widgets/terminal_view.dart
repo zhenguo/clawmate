@@ -720,74 +720,30 @@ class _TerminalViewState extends State<TerminalView>
                     valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF5AC8FA)),
                   ),
                 ),
-              Positioned(
-                right: 14,
-                bottom: 14,
-                child: IgnorePointer(
-                  ignoring: !(_userScrolledUp && !_historyMode),
-                  child: AnimatedScale(
-                    scale: (_userScrolledUp && !_historyMode) ? 1.0 : 0.7,
-                    duration: const Duration(milliseconds: 180),
-                    curve: Curves.easeOut,
-                    child: AnimatedOpacity(
-                      opacity: (_userScrolledUp && !_historyMode) ? 1.0 : 0.0,
-                      duration: const Duration(milliseconds: 180),
-                      curve: Curves.easeOut,
-                      child: GestureDetector(
-                        onTap: () {
-                          HapticFeedback.lightImpact();
-                          _flingController.stop();
-                          if (_scrollController.hasClients) {
-                            final max =
-                                _scrollController.position.maxScrollExtent;
-                            final distance = max - _scrollController.offset;
-                            if (distance > 2000) {
-                              _scrollController.jumpTo(max);
-                            } else {
-                              _scrollController.animateTo(
-                                max,
-                                duration: const Duration(milliseconds: 300),
-                                curve: Curves.easeOutCubic,
-                              );
-                            }
-                          }
-                          setState(() {
-                            _userScrolledUp = false;
-                            _hasNewOutput = false;
-                          });
-                        },
-                        child: Container(
-                          width: 40,
-                          height: 40,
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF2A2A2A),
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: _hasNewOutput
-                                  ? const Color(0xFF34C759)
-                                  : const Color(0xFF5AC8FA),
-                              width: 1.5,
-                            ),
-                            boxShadow: const [
-                              BoxShadow(
-                                color: Colors.black54,
-                                blurRadius: 8,
-                                offset: Offset(0, 2),
-                              ),
-                            ],
-                          ),
-                          child: Icon(
-                            Icons.keyboard_arrow_down,
-                            color: _hasNewOutput
-                                ? const Color(0xFF34C759)
-                                : const Color(0xFF5AC8FA),
-                            size: 24,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
+              _ScrollToBottomFab(
+                visible: _userScrolledUp && !_historyMode,
+                hasNewOutput: _hasNewOutput,
+                onTap: () {
+                  HapticFeedback.lightImpact();
+                  _flingController.stop();
+                  if (_scrollController.hasClients) {
+                    final max = _scrollController.position.maxScrollExtent;
+                    final distance = max - _scrollController.offset;
+                    if (distance > 2000) {
+                      _scrollController.jumpTo(max);
+                    } else {
+                      _scrollController.animateTo(
+                        max,
+                        duration: const Duration(milliseconds: 300),
+                        curve: Curves.easeOutCubic,
+                      );
+                    }
+                  }
+                  setState(() {
+                    _userScrolledUp = false;
+                    _hasNewOutput = false;
+                  });
+                },
               ),
             ],
             ),
@@ -820,6 +776,119 @@ class _TerminalViewState extends State<TerminalView>
           onShowHistory: _enterHistory,
         ),
       ],
+    );
+  }
+}
+
+class _ScrollToBottomFab extends StatefulWidget {
+  final bool visible;
+  final bool hasNewOutput;
+  final VoidCallback onTap;
+
+  const _ScrollToBottomFab({
+    required this.visible,
+    required this.hasNewOutput,
+    required this.onTap,
+  });
+
+  @override
+  State<_ScrollToBottomFab> createState() => _ScrollToBottomFabState();
+}
+
+class _ScrollToBottomFabState extends State<_ScrollToBottomFab>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _pulse = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1100),
+  );
+
+  bool get _shouldPulse => widget.visible && widget.hasNewOutput;
+
+  @override
+  void initState() {
+    super.initState();
+    if (_shouldPulse) _pulse.repeat(reverse: true);
+  }
+
+  @override
+  void didUpdateWidget(covariant _ScrollToBottomFab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_shouldPulse && !_pulse.isAnimating) {
+      _pulse.repeat(reverse: true);
+    } else if (!_shouldPulse && _pulse.isAnimating) {
+      _pulse.stop();
+      _pulse.value = 0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _pulse.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = widget.hasNewOutput
+        ? const Color(0xFF34C759)
+        : const Color(0xFF5AC8FA);
+    return Positioned(
+      right: 14,
+      bottom: 14,
+      child: IgnorePointer(
+        ignoring: !widget.visible,
+        child: AnimatedScale(
+          scale: widget.visible ? 1.0 : 0.7,
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+          child: AnimatedOpacity(
+            opacity: widget.visible ? 1.0 : 0.0,
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOut,
+            child: GestureDetector(
+              onTap: widget.onTap,
+              child: AnimatedBuilder(
+                animation: _pulse,
+                builder: (context, _) {
+                  final glow = widget.hasNewOutput
+                      ? Curves.easeInOut.transform(_pulse.value)
+                      : 0.0;
+                  return Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF2A2A2A),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: accent,
+                        width: 1.5 + glow,
+                      ),
+                      boxShadow: [
+                        const BoxShadow(
+                          color: Colors.black54,
+                          blurRadius: 8,
+                          offset: Offset(0, 2),
+                        ),
+                        if (widget.hasNewOutput)
+                          BoxShadow(
+                            color: accent.withValues(alpha: 0.55 * glow),
+                            blurRadius: 8 + glow * 12,
+                            spreadRadius: glow * 2.5,
+                          ),
+                      ],
+                    ),
+                    child: Icon(
+                      Icons.keyboard_arrow_down,
+                      color: accent,
+                      size: 24,
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
