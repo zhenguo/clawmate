@@ -22,12 +22,8 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     with WidgetsBindingObserver {
   late TerminalSession _session;
   StreamSubscription<SshConnectionState>? _stateSub;
-  Timer? _speedTimer;
   Timer? _reconnectTimer;
-  Timer? _pingTimer;
   Timer? _healthTimer;
-  String _speedText = '';
-  int _latencyMs = -1;
   static const _maxReconnectAttempts = 10;
 
   bool _wasConnected = false;
@@ -41,16 +37,6 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     WidgetsBinding.instance.addObserver(this);
     _session = ref.read(terminalProvider(widget.profile));
     _connectAndDetectTmux();
-    _speedTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (!mounted) return;
-      final s = _session.snapshotSpeed();
-      setState(() {
-        _speedText = '${_formatSpeed(s.rxSpeed)}/s ↓  ${_formatSpeed(s.txSpeed)}/s ↑';
-      });
-    });
-    _pingTimer = Timer.periodic(const Duration(seconds: 3), (_) {
-      _measureLatency();
-    });
     _healthTimer = Timer.periodic(const Duration(seconds: 2), (_) {
       if (!mounted || !_wasConnected || _autoReconnecting || _dialogShowing) return;
       final cs = _session.connectionState;
@@ -189,32 +175,10 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _speedTimer?.cancel();
-    _pingTimer?.cancel();
     _healthTimer?.cancel();
     _reconnectTimer?.cancel();
     _stateSub?.cancel();
     super.dispose();
-  }
-
-  Future<void> _measureLatency() async {
-    if (_session.connectionState != SshConnectionState.connected) return;
-    final ms = await _session.ping();
-    if (mounted) setState(() => _latencyMs = ms);
-  }
-
-  static ({String label, Color color}) _networkQuality(int ms) {
-    if (ms < 0) return (label: '未知', color: const Color(0xFF8E8E93));
-    if (ms <= 50) return (label: '极佳', color: const Color(0xFF34C759));
-    if (ms <= 100) return (label: '良好', color: const Color(0xFF30D158));
-    if (ms <= 200) return (label: '一般', color: const Color(0xFFFF9F0A));
-    return (label: '较差', color: const Color(0xFFFF3B30));
-  }
-
-  static String _formatSpeed(int bytesPerSec) {
-    if (bytesPerSec < 1024) return '${bytesPerSec}B';
-    if (bytesPerSec < 1024 * 1024) return '${(bytesPerSec / 1024).toStringAsFixed(1)}KB';
-    return '${(bytesPerSec / 1024 / 1024).toStringAsFixed(1)}MB';
   }
 
   @override
@@ -239,34 +203,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
           children: [
             Text(widget.profile.name,
                 style: const TextStyle(fontSize: 14, color: Colors.white)),
-            Row(
-              children: [
-                if (_latencyMs >= 0) ...[
-                  Container(
-                    width: 6,
-                    height: 6,
-                    decoration: BoxDecoration(
-                      color: _networkQuality(_latencyMs).color,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    '${_networkQuality(_latencyMs).label} ${_latencyMs}ms',
-                    style: TextStyle(fontSize: 10, color: _networkQuality(_latencyMs).color),
-                  ),
-                  const SizedBox(width: 8),
-                ],
-                if (_speedText.isNotEmpty)
-                  Flexible(
-                    child: Text(_speedText,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                            fontSize: 10, color: Color(0xFF8E8E93))),
-                  ),
-              ],
-            ),
+            _ConnectionStatsBar(session: _session),
           ],
         ),
         actions: [
@@ -391,6 +328,99 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
           ],
         ),
       ),
+    );
+  }
+}
+
+class _ConnectionStatsBar extends StatefulWidget {
+  final TerminalSession session;
+  const _ConnectionStatsBar({required this.session});
+
+  @override
+  State<_ConnectionStatsBar> createState() => _ConnectionStatsBarState();
+}
+
+class _ConnectionStatsBarState extends State<_ConnectionStatsBar> {
+  Timer? _speedTimer;
+  Timer? _pingTimer;
+  String _speedText = '';
+  int _latencyMs = -1;
+
+  @override
+  void initState() {
+    super.initState();
+    _speedTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      final s = widget.session.snapshotSpeed();
+      setState(() {
+        _speedText =
+            '${_formatSpeed(s.rxSpeed)}/s ↓  ${_formatSpeed(s.txSpeed)}/s ↑';
+      });
+    });
+    _pingTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+      _measureLatency();
+    });
+  }
+
+  @override
+  void dispose() {
+    _speedTimer?.cancel();
+    _pingTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _measureLatency() async {
+    if (widget.session.connectionState != SshConnectionState.connected) return;
+    final ms = await widget.session.ping();
+    if (mounted) setState(() => _latencyMs = ms);
+  }
+
+  static ({String label, Color color}) _networkQuality(int ms) {
+    if (ms < 0) return (label: '未知', color: const Color(0xFF8E8E93));
+    if (ms <= 50) return (label: '极佳', color: const Color(0xFF34C759));
+    if (ms <= 100) return (label: '良好', color: const Color(0xFF30D158));
+    if (ms <= 200) return (label: '一般', color: const Color(0xFFFF9F0A));
+    return (label: '较差', color: const Color(0xFFFF3B30));
+  }
+
+  static String _formatSpeed(int bytesPerSec) {
+    if (bytesPerSec < 1024) return '${bytesPerSec}B';
+    if (bytesPerSec < 1024 * 1024) {
+      return '${(bytesPerSec / 1024).toStringAsFixed(1)}KB';
+    }
+    return '${(bytesPerSec / 1024 / 1024).toStringAsFixed(1)}MB';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        if (_latencyMs >= 0) ...[
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(
+              color: _networkQuality(_latencyMs).color,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 4),
+          Text(
+            '${_networkQuality(_latencyMs).label} ${_latencyMs}ms',
+            style: TextStyle(
+                fontSize: 10, color: _networkQuality(_latencyMs).color),
+          ),
+          const SizedBox(width: 8),
+        ],
+        if (_speedText.isNotEmpty)
+          Flexible(
+            child: Text(_speedText,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                    fontSize: 10, color: Color(0xFF8E8E93))),
+          ),
+      ],
     );
   }
 }
