@@ -141,6 +141,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       return;
     }
     _wasConnected = true;
+    setState(() {});
     _showTmuxSessionSheet();
   }
 
@@ -213,7 +214,12 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
             icon: Icon(Icons.account_tree_outlined,
                 color: connected ? Colors.white70 : Colors.white24),
             tooltip: 'Git 分支',
-            onPressed: connected ? _showGitBranchSheet : null,
+            onPressed: connected
+                ? () {
+                    HapticFeedback.selectionClick();
+                    _showGitBranchSheet();
+                  }
+                : null,
           ),
           IconButton(
             visualDensity: VisualDensity.compact,
@@ -221,7 +227,12 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
             icon: Icon(Icons.grid_view_rounded,
                 color: connected ? Colors.white70 : Colors.white24),
             tooltip: 'tmux 会话',
-            onPressed: connected ? _showTmuxSessionSheet : null,
+            onPressed: connected
+                ? () {
+                    HapticFeedback.selectionClick();
+                    _showTmuxSessionSheet();
+                  }
+                : null,
           ),
           Container(
             width: 0.5,
@@ -235,6 +246,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
             icon: const Icon(Icons.logout_rounded, color: Color(0xFFFF3B30)),
             tooltip: '断开连接',
             onPressed: () async {
+              HapticFeedback.lightImpact();
               final ok = await showDialog<bool>(
                 context: context,
                 builder: (ctx) => AlertDialog(
