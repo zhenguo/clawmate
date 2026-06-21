@@ -1567,6 +1567,7 @@ class _ToolbarWrapperState extends State<_ToolbarWrapper> {
   final _speech = stt.SpeechToText();
   bool _isListening = false;
   bool _speechAvailable = false;
+  String _partialText = '';
 
   void _showSnack(String message, {int seconds = 1}) {
     if (!mounted) return;
@@ -1622,12 +1623,22 @@ class _ToolbarWrapperState extends State<_ToolbarWrapper> {
         if (!mounted) return;
         if (status == stt.SpeechToText.doneStatus ||
             status == stt.SpeechToText.notListeningStatus) {
-          if (_isListening) setState(() => _isListening = false);
+          if (_isListening) {
+            setState(() {
+              _isListening = false;
+              _partialText = '';
+            });
+          }
         }
       },
       onError: (_) {
         if (!mounted) return;
-        if (_isListening) setState(() => _isListening = false);
+        if (_isListening) {
+          setState(() {
+            _isListening = false;
+            _partialText = '';
+          });
+        }
       },
     );
   }
@@ -1635,7 +1646,10 @@ class _ToolbarWrapperState extends State<_ToolbarWrapper> {
   Future<void> _toggleVoice() async {
     if (_isListening) {
       await _speech.stop();
-      setState(() => _isListening = false);
+      setState(() {
+        _isListening = false;
+        _partialText = '';
+      });
       return;
     }
     if (!_speechAvailable) {
@@ -1644,12 +1658,22 @@ class _ToolbarWrapperState extends State<_ToolbarWrapper> {
           if (!mounted) return;
           if (status == stt.SpeechToText.doneStatus ||
               status == stt.SpeechToText.notListeningStatus) {
-            if (_isListening) setState(() => _isListening = false);
+            if (_isListening) {
+              setState(() {
+                _isListening = false;
+                _partialText = '';
+              });
+            }
           }
         },
         onError: (_) {
           if (!mounted) return;
-          if (_isListening) setState(() => _isListening = false);
+          if (_isListening) {
+            setState(() {
+              _isListening = false;
+              _partialText = '';
+            });
+          }
         },
       );
       if (!_speechAvailable) {
@@ -1675,9 +1699,19 @@ class _ToolbarWrapperState extends State<_ToolbarWrapper> {
     localeId ??= (await _speech.systemLocale())?.localeId;
     await _speech.listen(
       onResult: (result) {
-        if (result.finalResult && result.recognizedWords.isNotEmpty) {
-          widget.session.sendKey(result.recognizedWords);
-          setState(() => _isListening = false);
+        if (!mounted) return;
+        if (result.finalResult) {
+          if (result.recognizedWords.isNotEmpty) {
+            widget.session.sendKey(result.recognizedWords);
+          }
+          setState(() {
+            _isListening = false;
+            _partialText = '';
+          });
+        } else {
+          setState(() {
+            _partialText = result.recognizedWords;
+          });
         }
       },
       listenOptions: stt.SpeechListenOptions(
@@ -1695,7 +1729,11 @@ class _ToolbarWrapperState extends State<_ToolbarWrapper> {
         return ValueListenableBuilder<bool>(
           valueListenable: widget.session.altNotifier,
           builder: (context, altActive, _) {
-        return KeyboardToolbar(
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (_isListening || _partialText.isNotEmpty) _buildVoicePill(),
+            KeyboardToolbar(
           ctrlActive: ctrlActive,
           altActive: altActive,
           isListening: _isListening,
@@ -1777,10 +1815,58 @@ class _ToolbarWrapperState extends State<_ToolbarWrapper> {
         widget.session.terminal.paste(text);
       },
       onPasteImage: _pasteImage,
+            ),
+          ],
         );
           },
         );
       },
+    );
+  }
+
+  Widget _buildVoicePill() {
+    final text = _partialText.isEmpty ? '正在聆听…' : _partialText;
+    final waiting = _partialText.isEmpty;
+    return GestureDetector(
+      onTap: _toggleVoice,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: const BoxDecoration(
+          color: Color(0xFF2A2A2A),
+          border: Border(
+            top: BorderSide(color: Color(0xFFFF3B30), width: 2),
+          ),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.mic, color: Color(0xFFFF3B30), size: 18),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                text,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: waiting ? Colors.white38 : Colors.white,
+                  fontSize: 15,
+                  fontFamily: 'Menlo',
+                  height: 1.3,
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Text(
+              '点此结束',
+              style: const TextStyle(
+                color: Color(0xFF8E8E93),
+                fontSize: 12,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
