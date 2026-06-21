@@ -334,9 +334,18 @@ class TerminalSession {
     if (ctrl && data.length == 1) {
       final code = data.codeUnitAt(0);
       if (code >= 0x61 && code <= 0x7A) {
+        // a-z → ^A..^Z
         out = String.fromCharCode(code - 0x60);
-      } else if (code >= 0x41 && code <= 0x5A) {
-        out = String.fromCharCode(code - 0x40);
+      } else if (code >= 0x40 && code <= 0x5F) {
+        // @ A-Z [ \ ] ^ _ → 0x00..0x1F. Covers Ctrl-[ (ESC), Ctrl-\ (SIGQUIT),
+        // Ctrl-] , Ctrl-^ , Ctrl-_ (readline/emacs undo) — not just letters.
+        out = String.fromCharCode(code & 0x1f);
+      } else if (code == 0x20) {
+        // Ctrl-Space → NUL (emacs set-mark; a common remapped tmux prefix).
+        out = '\x00';
+      } else if (code == 0x3f) {
+        // Ctrl-? → DEL.
+        out = '\x7f';
       }
     }
     if (alt) {
