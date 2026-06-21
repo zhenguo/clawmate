@@ -73,7 +73,6 @@ class _TerminalViewState extends State<TerminalView>
   bool _historyMode = false;
   bool _historyReady = false;
   bool _historyLoading = false;
-  bool _historyCopyPressed = false;
   bool _prefetching = false;
   xterm.Terminal? _historyTerminal;
   DateTime? _historyCapturedAt;
@@ -598,11 +597,7 @@ class _TerminalViewState extends State<TerminalView>
                               ),
                             ),
                             const Spacer(),
-                            GestureDetector(
-                              behavior: HitTestBehavior.opaque,
-                              onTapDown: (_) => setState(() => _historyCopyPressed = true),
-                              onTapUp: (_) => setState(() => _historyCopyPressed = false),
-                              onTapCancel: () => setState(() => _historyCopyPressed = false),
+                            _PressableScale(
                               onTap: () {
                                 final sel = _historyController.selection;
                                 final text = (sel != null && _historyTerminal != null)
@@ -617,28 +612,27 @@ class _TerminalViewState extends State<TerminalView>
                                   _historySnack('长按选择文本后再复制');
                                 }
                               },
-                              child: Container(
+                              builder: (pressed) => Container(
                                 width: 36,
                                 height: 30,
                                 alignment: Alignment.center,
                                 margin: const EdgeInsets.only(right: 6),
                                 decoration: BoxDecoration(
-                                  color: _historyCopyPressed
+                                  color: pressed
                                       ? const Color(0xFF3A3A3A)
                                       : const Color(0xFF2A2A2A),
                                   borderRadius: BorderRadius.circular(6),
                                 ),
                                 child: Icon(
                                   Icons.copy_outlined,
-                                  color: _historyCopyPressed ? Colors.white : Colors.white70,
+                                  color: pressed ? Colors.white : Colors.white70,
                                   size: 17,
                                 ),
                               ),
                             ),
-                            GestureDetector(
-                              behavior: HitTestBehavior.opaque,
+                            _PressableScale(
                               onTap: _exitHistory,
-                              child: Container(
+                              builder: (pressed) => Container(
                                 height: 44,
                                 alignment: Alignment.center,
                                 padding: const EdgeInsets.symmetric(
@@ -648,6 +642,9 @@ class _TerminalViewState extends State<TerminalView>
                                       horizontal: 12, vertical: 6),
                                   decoration: BoxDecoration(
                                     borderRadius: BorderRadius.circular(13),
+                                    color: pressed
+                                        ? const Color(0x2234C759)
+                                        : null,
                                     border: Border.all(
                                       color: const Color(0xFF34C759),
                                       width: 1.0,
@@ -833,6 +830,40 @@ class _HistoryHeaderBar extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _PressableScale extends StatefulWidget {
+  final VoidCallback onTap;
+  final Widget Function(bool pressed) builder;
+
+  const _PressableScale({required this.onTap, required this.builder});
+
+  @override
+  State<_PressableScale> createState() => _PressableScaleState();
+}
+
+class _PressableScaleState extends State<_PressableScale> {
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTapDown: (_) => setState(() => _pressed = true),
+      onTapUp: (_) => setState(() => _pressed = false),
+      onTapCancel: () => setState(() => _pressed = false),
+      onTap: () {
+        HapticFeedback.selectionClick();
+        widget.onTap();
+      },
+      child: AnimatedScale(
+        scale: _pressed ? 0.92 : 1.0,
+        duration: const Duration(milliseconds: 90),
+        curve: Curves.easeOut,
+        child: widget.builder(_pressed),
       ),
     );
   }
