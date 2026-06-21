@@ -537,6 +537,7 @@ class _ReconnectDialogState extends State<_ReconnectDialog> {
   String _statusMessage = '正在初始化…';
   int _countdown = 0;
   Timer? _countdownTimer;
+  bool _cancelled = false;
 
   @override
   void initState() {
@@ -552,7 +553,7 @@ class _ReconnectDialogState extends State<_ReconnectDialog> {
 
   Future<void> _runReconnectLoop() async {
     for (int i = 1; i <= widget.maxAttempts; i++) {
-      if (!mounted) return;
+      if (!mounted || _cancelled) return;
       setState(() {
         _currentAttempt = i;
         _statusMessage = '正在连接…';
@@ -562,7 +563,7 @@ class _ReconnectDialogState extends State<_ReconnectDialog> {
         if (mounted) setState(() => _statusMessage = msg);
       });
 
-      if (!mounted) return;
+      if (!mounted || _cancelled) return;
 
       if (success) {
         setState(() => _phase = _ReconnectPhase.connected);
@@ -651,6 +652,15 @@ class _ReconnectDialogState extends State<_ReconnectDialog> {
             style: const TextStyle(fontSize: 12, color: Colors.white30),
           ),
         ],
+        const SizedBox(height: 20),
+        TextButton(
+          onPressed: () {
+            _cancelled = true;
+            _countdownTimer?.cancel();
+            widget.onClose();
+          },
+          child: const Text('取消', style: TextStyle(color: Colors.white38)),
+        ),
       ],
     );
   }
