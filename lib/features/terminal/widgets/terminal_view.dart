@@ -84,6 +84,7 @@ class _TerminalViewState extends State<TerminalView>
   DateTime? _historyCapturedAt;
   DateTime? _lastPrefetchAttempt;
   Future<void>? _prefetchOp;
+  StreamSubscription<dynamic>? _connSub;
   final _historyScrollController = ScrollController();
   final _historyController = xterm.TerminalController();
   // True when the live session emitted output while the history overlay was
@@ -152,6 +153,7 @@ class _TerminalViewState extends State<TerminalView>
     _historyScrollController.addListener(_onHistoryScroll);
     _termController.addListener(_onSelectionChange);
     _historyController.addListener(_onSelectionChange);
+    _connSub = widget.session.connectionStateStream.listen(_onConnectionChange);
     _loadFontSize();
   }
 
@@ -271,11 +273,20 @@ class _TerminalViewState extends State<TerminalView>
     }
   }
 
+  void _onConnectionChange(dynamic _) {
+    if (!mounted) return;
+    if (!widget.session.isConnected && !_historyMode) {
+      _historyTerminal = null;
+      _historyCapturedAt = null;
+    }
+  }
+
   @override
   void dispose() {
     _wheelFlingTimer?.cancel();
     _fontBadgeTimer?.cancel();
     _focusReshowTimer?.cancel();
+    _connSub?.cancel();
     _flingController.dispose();
     _overscrollController.dispose();
     _overscroll.dispose();
