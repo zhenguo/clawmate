@@ -146,6 +146,7 @@ class _TerminalViewState extends State<TerminalView>
     widget.session.terminal.addListener(_onTerminalChange);
     _historyScrollController.addListener(_onHistoryScroll);
     _termController.addListener(_onSelectionChange);
+    _historyController.addListener(_onSelectionChange);
     _loadFontSize();
   }
 
@@ -171,10 +172,26 @@ class _TerminalViewState extends State<TerminalView>
   }
 
   void _onSelectionChange() {
-    _hasSelection.value = _termController.selection != null;
+    _hasSelection.value = _historyMode
+        ? _historyController.selection != null
+        : _termController.selection != null;
   }
 
   void _copySelection() {
+    if (_historyMode) {
+      final sel = _historyController.selection;
+      if (sel == null || _historyTerminal == null) return;
+      final text = _historyTerminal!.buffer.getText(sel);
+      if (text.trim().isEmpty) {
+        _historyController.clearSelection();
+        return;
+      }
+      Clipboard.setData(ClipboardData(text: text));
+      _historyController.clearSelection();
+      HapticFeedback.selectionClick();
+      showTerminalSnack(context, '已复制到剪贴板');
+      return;
+    }
     final sel = _termController.selection;
     if (sel == null) return;
     final text = widget.session.terminal.buffer.getText(sel);
@@ -245,6 +262,7 @@ class _TerminalViewState extends State<TerminalView>
     widget.session.terminal.removeListener(_onTerminalChange);
     _historyScrollController.removeListener(_onHistoryScroll);
     _termController.removeListener(_onSelectionChange);
+    _historyController.removeListener(_onSelectionChange);
     _hasSelection.dispose();
     _scrollController.dispose();
     _historyScrollController.dispose();
@@ -504,6 +522,7 @@ class _TerminalViewState extends State<TerminalView>
         _historyMode = true;
         _historyReady = false;
       });
+      _onSelectionChange();
       HapticFeedback.lightImpact();
       _scrollHistoryToBottom();
       final capturedAt = _historyCapturedAt;
@@ -527,6 +546,7 @@ class _TerminalViewState extends State<TerminalView>
       _historyMode = true;
       _historyReady = false;
     });
+    _onSelectionChange();
     HapticFeedback.lightImpact();
     _scrollHistoryToBottom();
   }
@@ -579,6 +599,7 @@ class _TerminalViewState extends State<TerminalView>
       _historyMode = false;
       _historyReady = false;
     });
+    _onSelectionChange();
     HapticFeedback.lightImpact();
     final age = _historyCapturedAt;
     if (age != null && DateTime.now().difference(age).inSeconds > 5) {
@@ -925,7 +946,7 @@ class _TerminalViewState extends State<TerminalView>
               ValueListenableBuilder<bool>(
                 valueListenable: _hasSelection,
                 builder: (context, hasSelection, _) {
-                  if (_historyMode || !hasSelection) {
+                  if (!hasSelection) {
                     return const SizedBox.shrink();
                   }
                   return Positioned(
