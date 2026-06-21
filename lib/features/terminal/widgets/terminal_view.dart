@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/physics.dart';
 import 'package:flutter/services.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:xterm/xterm.dart' as xterm;
@@ -42,7 +43,7 @@ class TerminalView extends StatefulWidget {
 }
 
 class _TerminalViewState extends State<TerminalView>
-    with WidgetsBindingObserver, SingleTickerProviderStateMixin {
+    with WidgetsBindingObserver, TickerProviderStateMixin {
   final _terminalViewKey = GlobalKey<xterm.TerminalViewState>();
   final _termController = xterm.TerminalController();
   final _scrollController = ScrollController();
@@ -62,6 +63,12 @@ class _TerminalViewState extends State<TerminalView>
   Timer? _wheelFlingTimer;
   double _wheelFlingVel = 0;
   double _wheelFlingAccum = 0;
+  double _overscroll = 0;
+  static const _kMaxOverscroll = 120.0;
+  late final AnimationController _overscrollController =
+      AnimationController.unbounded(vsync: this)..addListener(_onOverscrollTick);
+  static final SpringDescription _kOverscrollSpring =
+      SpringDescription.withDampingRatio(mass: 0.5, stiffness: 200.0, ratio: 1.0);
 
   bool _historyMode = false;
   bool _historyReady = false;
@@ -167,6 +174,7 @@ class _TerminalViewState extends State<TerminalView>
   void dispose() {
     _wheelFlingTimer?.cancel();
     _flingController.dispose();
+    _overscrollController.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _focusNode.removeListener(_onFocusChange);
     widget.session.terminal.removeListener(_onTerminalChange);
@@ -206,6 +214,7 @@ class _TerminalViewState extends State<TerminalView>
       _scrollAccumX = 0;
       _flingController.stop();
       _stopWheelFling();
+      _overscrollController.stop();
       _velocityTracker = VelocityTracker.withKind(event.kind);
       _velocityTracker!.addPosition(event.timeStamp, event.position);
       _scrollController.jumpTo(_scrollController.offset);
@@ -289,12 +298,40 @@ class _TerminalViewState extends State<TerminalView>
     if (!_scrollController.hasClients) return;
     final max = _scrollController.position.maxScrollExtent;
     if (max <= 0) return;
-    final newOffset = (_scrollController.offset - dy).clamp(0.0, max);
-    _scrollController.jumpTo(newOffset);
+    final raw = _scrollController.offset - dy;
+    if (raw < 0) {
+      if (_scrollController.offset != 0) _scrollController.jumpTo(0);
+      _addOverscroll(-raw);
+    } else if (raw > max) {
+      if (_scrollController.offset != max) _scrollController.jumpTo(max);
+      _addOverscroll(-(raw - max));
+    } else {
+      _scrollController.jumpTo(raw);
+      if (_overscroll != 0) setState(() => _overscroll = 0);
+    }
     final wasUp = _userScrolledUp;
-    _userScrolledUp = newOffset < max - 1.0;
+    _userScrolledUp = _scrollController.offset < max - 1.0;
     if (!_userScrolledUp) _hasNewOutput = false;
     if (wasUp != _userScrolledUp) setState(() {});
+  }
+
+  void _addOverscroll(double delta) {
+    _overscrollController.stop();
+    final resist = 1.0 - (_overscroll.abs() / _kMaxOverscroll).clamp(0.0, 0.85);
+    final next =
+        (_overscroll + delta * resist).clamp(-_kMaxOverscroll, _kMaxOverscroll);
+    setState(() => _overscroll = next);
+  }
+
+  void _springBackOverscroll() {
+    if (_overscroll == 0) return;
+    _overscrollController.animateWith(
+      SpringSimulation(_kOverscrollSpring, _overscroll, 0.0, 0.0),
+    );
+  }
+
+  void _onOverscrollTick() {
+    setState(() => _overscroll = _overscrollController.value);
   }
 
   static final SpringDescription _kIosScrollSpring =
@@ -428,6 +465,14 @@ class _TerminalViewState extends State<TerminalView>
 
   void _handlePointerUp(PointerUpEvent event) {
     if (event.kind == PointerDeviceKind.touch && _pointerDownPos != null) {
+      if (_overscroll.abs() > 0.5) {
+        _springBackOverscroll();
+        _velocityTracker = null;
+        _pointerDownPos = null;
+        _scrollAccum = 0;
+        _scrollAccumX = 0;
+        return;
+      }
       final distance = (event.position - _pointerDownPos!).distance;
       if (distance < _tapSlop) {
         if (_historyMode) {
@@ -458,6 +503,7 @@ class _TerminalViewState extends State<TerminalView>
     _pointerDownPos = null;
     _scrollAccum = 0;
     _scrollAccumX = 0;
+    _springBackOverscroll();
   }
 
   @override
@@ -471,27 +517,30 @@ class _TerminalViewState extends State<TerminalView>
             onPointerUp: _handlePointerUp,
             child: Stack(
               children: [
-                ScrollConfiguration(
-                  behavior: const _NeverScrollBehavior(),
-                  child: RawScrollbar(
-                    controller: _scrollController,
-                    thumbVisibility: false,
-                    thumbColor: const Color(0xCC5AC8FA),
-                    thickness: 5,
-                    radius: const Radius.circular(2.5),
-                    fadeDuration: const Duration(milliseconds: 400),
-                    timeToFade: const Duration(milliseconds: 1800),
-                    child: xterm.TerminalView(
-                      widget.session.terminal,
-                      key: _terminalViewKey,
-                      controller: _termController,
-                      scrollController: _scrollController,
-                      focusNode: _focusNode,
-                      autofocus: false,
-                      deleteDetection: true,
-                      keyboardType: TextInputType.text,
-                      textStyle: _kTermStyle,
-                      theme: _kTermTheme,
+                Transform.translate(
+                  offset: Offset(0, _overscroll),
+                  child: ScrollConfiguration(
+                    behavior: const _NeverScrollBehavior(),
+                    child: RawScrollbar(
+                      controller: _scrollController,
+                      thumbVisibility: false,
+                      thumbColor: const Color(0xCC5AC8FA),
+                      thickness: 5,
+                      radius: const Radius.circular(2.5),
+                      fadeDuration: const Duration(milliseconds: 400),
+                      timeToFade: const Duration(milliseconds: 1800),
+                      child: xterm.TerminalView(
+                        widget.session.terminal,
+                        key: _terminalViewKey,
+                        controller: _termController,
+                        scrollController: _scrollController,
+                        focusNode: _focusNode,
+                        autofocus: false,
+                        deleteDetection: true,
+                        keyboardType: TextInputType.text,
+                        textStyle: _kTermStyle,
+                        theme: _kTermTheme,
+                      ),
                     ),
                   ),
                 ),
