@@ -336,6 +336,31 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
         child: Stack(
           children: [
             TerminalView(session: _session),
+            if (!connected && !_initialConnectFailed)
+              const Positioned.fill(
+                child: IgnorePointer(
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor:
+                                AlwaysStoppedAnimation(Color(0xFF5AC8FA)),
+                          ),
+                        ),
+                        SizedBox(height: 14),
+                        Text('正在连接…',
+                            style: TextStyle(
+                                color: Colors.white54, fontSize: 13)),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             if (_initialConnectFailed)
               Positioned(
                 left: 0,
