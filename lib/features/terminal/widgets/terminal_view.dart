@@ -9,6 +9,20 @@ import 'package:xterm/xterm.dart' as xterm;
 import '../providers/terminal_provider.dart';
 import '../widgets/keyboard_toolbar.dart';
 
+void showTerminalSnack(BuildContext context, String message, {int seconds = 1}) {
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text(message, style: const TextStyle(color: Colors.white70, fontSize: 13)),
+      backgroundColor: const Color(0xFF2A2A2A),
+      behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      duration: Duration(seconds: seconds),
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      elevation: 4,
+    ),
+  );
+}
+
 class _NeverScrollBehavior extends ScrollBehavior {
   const _NeverScrollBehavior();
 
@@ -35,23 +49,31 @@ class _TerminalViewState extends State<TerminalView>
   final _focusNode = FocusNode();
   bool _intentionalFocus = false;
   double _scrollAccum = 0;
+  double _scrollAccumX = 0;
   Offset? _pointerDownPos;
   bool _userScrolledUp = false;
+  bool _hasNewOutput = false;
   static const _scrollStep = 18.0;
   static const _tapSlop = 12.0;
-  bool _wheelInFlight = false;
-  Timer? _wheelTimeout;
+  static const _historyEnterThreshold = 48.0;
   VelocityTracker? _velocityTracker;
   late final AnimationController _flingController =
       AnimationController.unbounded(vsync: this)..addListener(_onFlingTick);
+  Timer? _wheelFlingTimer;
+  double _wheelFlingVel = 0;
+  double _wheelFlingAccum = 0;
 
   bool _historyMode = false;
+  bool _historyReady = false;
   bool _historyLoading = false;
+  bool _historyCopyPressed = false;
   bool _prefetching = false;
   xterm.Terminal? _historyTerminal;
   DateTime? _historyCapturedAt;
+  DateTime? _lastPrefetchAttempt;
   Future<void>? _prefetchOp;
   final _historyScrollController = ScrollController();
+  final _historyController = xterm.TerminalController();
 
   static const _kTermStyle = xterm.TerminalStyle(
     fontSize: 12,
@@ -106,6 +128,10 @@ class _TerminalViewState extends State<TerminalView>
 
   void _onHistoryScroll() {
     if (!_historyMode || !_historyScrollController.hasClients) return;
+    // Only an active finger-drag past the bottom counts as the exit gesture.
+    // An iOS ballistic fling-bounce (finger already lifted) can overshoot the
+    // threshold on its own and must NOT auto-exit.
+    if (_pointerDownPos == null) return;
     final pos = _historyScrollController.position;
     if (pos.pixels > pos.maxScrollExtent + 36) {
       _exitHistory();
@@ -113,14 +139,17 @@ class _TerminalViewState extends State<TerminalView>
   }
 
   void _onTerminalChange() {
-    _wheelTimeout?.cancel();
-    _wheelTimeout = null;
-    _wheelInFlight = false;
     if (!_prefetching && _historyTerminal == null &&
         widget.session.terminal.mouseMode != xterm.MouseMode.none) {
-      _prefetchHistory();
+      final last = _lastPrefetchAttempt;
+      if (last == null || DateTime.now().difference(last).inSeconds >= 8) {
+        _prefetchHistory();
+      }
     }
-    if (_userScrolledUp) return;
+    if (_userScrolledUp) {
+      if (!_hasNewOutput) setState(() => _hasNewOutput = true);
+      return;
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !_scrollController.hasClients) return;
       final max = _scrollController.position.maxScrollExtent;
@@ -140,8 +169,8 @@ class _TerminalViewState extends State<TerminalView>
 
   @override
   void dispose() {
+    _wheelFlingTimer?.cancel();
     _flingController.dispose();
-    _wheelTimeout?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _focusNode.removeListener(_onFocusChange);
     widget.session.terminal.removeListener(_onTerminalChange);
@@ -149,6 +178,7 @@ class _TerminalViewState extends State<TerminalView>
     _scrollController.dispose();
     _historyScrollController.dispose();
     _termController.dispose();
+    _historyController.dispose();
     _focusNode.dispose();
     super.dispose();
   }
@@ -177,7 +207,9 @@ class _TerminalViewState extends State<TerminalView>
     if (event.kind == PointerDeviceKind.touch) {
       _pointerDownPos = event.position;
       _scrollAccum = 0;
+      _scrollAccumX = 0;
       _flingController.stop();
+      _stopWheelFling();
       _velocityTracker = VelocityTracker.withKind(event.kind);
       _velocityTracker!.addPosition(event.timeStamp, event.position);
       _scrollController.jumpTo(_scrollController.offset);
@@ -189,31 +221,72 @@ class _TerminalViewState extends State<TerminalView>
     if (_termController.selection != null) return;
     if (_historyLoading) return;
     if (_historyMode) return;
+    _velocityTracker?.addPosition(event.timeStamp, event.position);
     if (widget.session.terminal.mouseMode == xterm.MouseMode.none) {
-      _velocityTracker?.addPosition(event.timeStamp, event.position);
       _scrollNormalBuffer(event.delta.dy);
       return;
     }
     _scrollAccum += event.delta.dy;
-    if (_scrollAccum.abs() < _scrollStep) return;
-    final up = _scrollAccum > 0;
-    _scrollAccum = 0;
-    if (up) {
-      _enterHistory();
+    _scrollAccumX += event.delta.dx.abs();
+    if (_scrollAccum > 0) {
+      // History direction: accumulate freely until a deliberate,
+      // vertical-dominant pull crosses the threshold. Upward movement is
+      // reserved for history, so never emit wheel events here.
+      if (_scrollAccum >= _historyEnterThreshold &&
+          _scrollAccumX < _scrollAccum * 0.5) {
+        _enterHistory();
+      }
       return;
     }
-    _sendWheel(up);
+    // Opposite direction: forward wheel notches to the remote (tmux/program).
+    if (_scrollAccum.abs() < _scrollStep) return;
+    final notches = (_scrollAccum.abs() / _scrollStep).floor();
+    _scrollAccum = _scrollAccum.sign * (_scrollAccum.abs() % _scrollStep);
+    _sendWheel(false, notches);
   }
 
-  void _sendWheel(bool up) {
-    if (_wheelInFlight) return;
-    _wheelInFlight = true;
-    _wheelTimeout?.cancel();
-    _wheelTimeout = Timer(const Duration(milliseconds: 200), () {
-      _wheelInFlight = false;
-    });
+  void _sendWheel(bool up, [int count = 1]) {
     final code = up ? 64 : 65;
-    widget.session.sendKey('\x1b[<$code;1;1M');
+    final seq = '\x1b[<$code;1;1M';
+    final clamped = count.clamp(1, 5);
+    final buf = StringBuffer();
+    for (var i = 0; i < clamped; i++) {
+      buf.write(seq);
+    }
+    widget.session.sendKey(buf.toString());
+  }
+
+  // Momentum for live tmux scrolling. The remote owns the scrollback, so each
+  // notch is a discrete wheel event — without this, a flick stops dead on
+  // finger-lift. Emit decaying wheel-down notches on an iOS-like deceleration
+  // curve so a fast flick coasts through a pager. Down-only: the up direction
+  // is reserved for entering the history overlay.
+  void _startWheelFling(double velocityDy) {
+    _stopWheelFling();
+    _wheelFlingVel = velocityDy;
+    _wheelFlingAccum = 0;
+    _wheelFlingTimer = Timer.periodic(const Duration(milliseconds: 32), (_) {
+      const dt = 0.032;
+      const friction = 0.90;
+      _wheelFlingVel *= friction;
+      if (_wheelFlingVel.abs() < 140) {
+        _stopWheelFling();
+        return;
+      }
+      _wheelFlingAccum += _wheelFlingVel.abs() * dt;
+      if (_wheelFlingAccum >= _scrollStep) {
+        final notches = (_wheelFlingAccum / _scrollStep).floor().clamp(1, 4);
+        _wheelFlingAccum -= notches * _scrollStep;
+        _sendWheel(false, notches);
+      }
+    });
+  }
+
+  void _stopWheelFling() {
+    _wheelFlingTimer?.cancel();
+    _wheelFlingTimer = null;
+    _wheelFlingVel = 0;
+    _wheelFlingAccum = 0;
   }
 
   void _scrollNormalBuffer(double dy) {
@@ -224,16 +297,27 @@ class _TerminalViewState extends State<TerminalView>
     _scrollController.jumpTo(newOffset);
     final wasUp = _userScrolledUp;
     _userScrolledUp = newOffset < max - 1.0;
+    if (!_userScrolledUp) _hasNewOutput = false;
     if (wasUp != _userScrolledUp) setState(() {});
   }
+
+  static final SpringDescription _kIosScrollSpring =
+      SpringDescription.withDampingRatio(
+    mass: 0.5,
+    stiffness: 100.0,
+    ratio: 1.1,
+  );
 
   void _startFling(double velocity) {
     if (!_scrollController.hasClients) return;
     final max = _scrollController.position.maxScrollExtent;
     if (max <= 0) return;
-    final sim = ClampingScrollSimulation(
+    final sim = BouncingScrollSimulation(
       position: _scrollController.offset,
       velocity: -velocity,
+      leadingExtent: 0.0,
+      trailingExtent: max,
+      spring: _kIosScrollSpring,
     );
     _flingController.animateWith(sim);
   }
@@ -248,6 +332,7 @@ class _TerminalViewState extends State<TerminalView>
     _scrollController.jumpTo(v);
     final wasUp = _userScrolledUp;
     _userScrolledUp = v < max - 1.0;
+    if (!_userScrolledUp) _hasNewOutput = false;
     if (wasUp != _userScrolledUp) setState(() {});
     if (v <= 0.0 || v >= max) _flingController.stop();
   }
@@ -256,17 +341,31 @@ class _TerminalViewState extends State<TerminalView>
 
   Future<void> _enterHistory() async {
     if (_historyMode || _historyLoading) return;
-    if (_historyTerminal == null) {
-      // Full history not preloaded yet — show a minimal loading bar and wait
-      // for the in-flight (or freshly started) silent prefetch to finish.
+    if (widget.session.terminal.mouseMode == xterm.MouseMode.none) {
+      _historySnack('历史回看仅在 tmux 会话中可用');
+      return;
+    }
+    final capturedAt = _historyCapturedAt;
+    final stale = capturedAt == null ||
+        DateTime.now().difference(capturedAt).inSeconds > 5;
+    if (_historyTerminal == null || stale) {
+      // No snapshot yet, or the cached one is stale — capture fresh so the
+      // user always sees recent history, then show the minimal loading bar
+      // while the (possibly in-flight) capture finishes.
       setState(() => _historyLoading = true);
       if (!_prefetching) _prefetchHistory();
       await _prefetchOp;
       if (!mounted) return;
       setState(() => _historyLoading = false);
     }
-    if (_historyTerminal == null) return;
-    setState(() => _historyMode = true);
+    if (_historyTerminal == null) {
+      _historySnack('暂无历史内容');
+      return;
+    }
+    setState(() {
+      _historyMode = true;
+      _historyReady = false;
+    });
     HapticFeedback.lightImpact();
     _scrollHistoryToBottom();
   }
@@ -277,6 +376,7 @@ class _TerminalViewState extends State<TerminalView>
   void _prefetchHistory() {
     if (_prefetching) return;
     _prefetching = true;
+    _lastPrefetchAttempt = DateTime.now();
     _prefetchOp = _doPrefetch();
   }
 
@@ -308,11 +408,16 @@ class _TerminalViewState extends State<TerminalView>
       if (!mounted || !_historyScrollController.hasClients) return;
       _historyScrollController
           .jumpTo(_historyScrollController.position.maxScrollExtent);
+      if (!_historyReady) setState(() => _historyReady = true);
     });
   }
 
   void _exitHistory() {
-    setState(() => _historyMode = false);
+    _historyController.clearSelection();
+    setState(() {
+      _historyMode = false;
+      _historyReady = false;
+    });
     HapticFeedback.lightImpact();
     final age = _historyCapturedAt;
     if (age != null && DateTime.now().difference(age).inSeconds > 5) {
@@ -320,14 +425,23 @@ class _TerminalViewState extends State<TerminalView>
     }
   }
 
+  void _historySnack(String message) {
+    if (!mounted) return;
+    showTerminalSnack(context, message);
+  }
+
   void _handlePointerUp(PointerUpEvent event) {
     if (event.kind == PointerDeviceKind.touch && _pointerDownPos != null) {
       final distance = (event.position - _pointerDownPos!).distance;
       if (distance < _tapSlop) {
-        if (_termController.selection != null) {
+        if (_historyMode) {
+          // history overlay owns its own tap/selection gestures
+        } else if (_termController.selection != null) {
           _termController.clearSelection();
         } else if (_focusNode.hasFocus) {
           _hideKeyboard();
+        } else {
+          _showKeyboard();
         }
       } else if (distance >= _tapSlop &&
           !_historyMode &&
@@ -335,11 +449,19 @@ class _TerminalViewState extends State<TerminalView>
           widget.session.terminal.mouseMode == xterm.MouseMode.none) {
         final v = _velocityTracker?.getVelocity().pixelsPerSecond.dy ?? 0;
         if (v.abs() > 50) _startFling(v);
+      } else if (distance >= _tapSlop &&
+          !_historyMode &&
+          _termController.selection == null &&
+          widget.session.terminal.mouseMode != xterm.MouseMode.none) {
+        final v = _velocityTracker?.getVelocity().pixelsPerSecond.dy ?? 0;
+        // Down-direction only (finger flicked up); up enters history.
+        if (v < -250) _startWheelFling(v);
       }
     }
     _velocityTracker = null;
     _pointerDownPos = null;
     _scrollAccum = 0;
+    _scrollAccumX = 0;
   }
 
   @override
@@ -355,25 +477,43 @@ class _TerminalViewState extends State<TerminalView>
               children: [
                 ScrollConfiguration(
                   behavior: const _NeverScrollBehavior(),
-                  child: xterm.TerminalView(
-                    widget.session.terminal,
-                    key: _terminalViewKey,
-                    controller: _termController,
-                    scrollController: _scrollController,
-                    focusNode: _focusNode,
-                    autofocus: false,
-                    deleteDetection: true,
-                    keyboardType: TextInputType.text,
-                    textStyle: _kTermStyle,
-                    theme: _kTermTheme,
+                  child: RawScrollbar(
+                    controller: _scrollController,
+                    thumbVisibility: false,
+                    thumbColor: const Color(0xCC5AC8FA),
+                    thickness: 5,
+                    radius: const Radius.circular(2.5),
+                    fadeDuration: const Duration(milliseconds: 400),
+                    timeToFade: const Duration(milliseconds: 1800),
+                    child: xterm.TerminalView(
+                      widget.session.terminal,
+                      key: _terminalViewKey,
+                      controller: _termController,
+                      scrollController: _scrollController,
+                      focusNode: _focusNode,
+                      autofocus: false,
+                      deleteDetection: true,
+                      keyboardType: TextInputType.text,
+                      textStyle: _kTermStyle,
+                      theme: _kTermTheme,
+                    ),
                   ),
                 ),
-              if (_historyMode && _historyTerminal != null)
-                Positioned.fill(
-                  child: Column(
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 200),
+                transitionBuilder: (child, animation) {
+                  return FadeTransition(
+                    opacity: animation,
+                    child: child,
+                  );
+                },
+                child: (_historyMode && _historyTerminal != null)
+                    ? SizedBox.expand(
+                        key: const ValueKey('history'),
+                        child: Column(
                     children: [
                       Container(
-                        height: 32,
+                        height: 44,
                         decoration: const BoxDecoration(
                           color: Color(0xFF1A1A1A),
                           border: Border(
@@ -383,56 +523,99 @@ class _TerminalViewState extends State<TerminalView>
                             ),
                           ),
                         ),
-                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        padding: const EdgeInsets.only(left: 14, right: 8),
                         child: Row(
                           children: [
                             const Icon(
                               Icons.history,
-                              color: Colors.white54,
-                              size: 15,
+                              color: Colors.white70,
+                              size: 18,
                             ),
-                            const SizedBox(width: 5),
+                            const SizedBox(width: 7),
                             const Text(
                               '历史回看',
                               style: TextStyle(
-                                color: Colors.white54,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w500,
+                                color: Colors.white70,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
                             const Spacer(),
                             GestureDetector(
                               behavior: HitTestBehavior.opaque,
+                              onTapDown: (_) => setState(() => _historyCopyPressed = true),
+                              onTapUp: (_) => setState(() => _historyCopyPressed = false),
+                              onTapCancel: () => setState(() => _historyCopyPressed = false),
+                              onTap: () {
+                                final sel = _historyController.selection;
+                                final text = (sel != null && _historyTerminal != null)
+                                    ? _historyTerminal!.buffer.getText(sel)
+                                    : '';
+                                if (text.trim().isNotEmpty) {
+                                  Clipboard.setData(ClipboardData(text: text));
+                                  _historyController.clearSelection();
+                                  HapticFeedback.selectionClick();
+                                  _historySnack('已复制到剪贴板');
+                                } else {
+                                  _historySnack('长按选择文本后再复制');
+                                }
+                              },
+                              child: Container(
+                                width: 36,
+                                height: 30,
+                                alignment: Alignment.center,
+                                margin: const EdgeInsets.only(right: 6),
+                                decoration: BoxDecoration(
+                                  color: _historyCopyPressed
+                                      ? const Color(0xFF3A3A3A)
+                                      : const Color(0xFF2A2A2A),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Icon(
+                                  Icons.copy_outlined,
+                                  color: _historyCopyPressed ? Colors.white : Colors.white70,
+                                  size: 17,
+                                ),
+                              ),
+                            ),
+                            GestureDetector(
+                              behavior: HitTestBehavior.opaque,
                               onTap: _exitHistory,
                               child: Container(
+                                height: 44,
+                                alignment: Alignment.center,
                                 padding: const EdgeInsets.symmetric(
-                                    horizontal: 10, vertical: 4),
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(
-                                    color: const Color(0xFF34C759),
-                                    width: 1.0,
+                                    horizontal: 14),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 12, vertical: 6),
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(13),
+                                    border: Border.all(
+                                      color: const Color(0xFF34C759),
+                                      width: 1.0,
+                                    ),
                                   ),
-                                ),
-                                child: const Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Text(
-                                      'LIVE',
-                                      style: TextStyle(
-                                        color: Color(0xFF34C759),
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w700,
-                                        letterSpacing: 0.5,
+                                  child: const Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        'LIVE',
+                                        style: TextStyle(
+                                          color: Color(0xFF34C759),
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w700,
+                                          letterSpacing: 0.5,
+                                        ),
                                       ),
-                                    ),
-                                    SizedBox(width: 3),
-                                    Icon(
-                                      Icons.arrow_forward,
-                                      color: Color(0xFF34C759),
-                                      size: 13,
-                                    ),
-                                  ],
+                                      SizedBox(width: 3),
+                                      Icon(
+                                        Icons.arrow_forward,
+                                        color: Color(0xFF34C759),
+                                        size: 14,
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ),
                             ),
@@ -440,24 +623,45 @@ class _TerminalViewState extends State<TerminalView>
                         ),
                       ),
                       Expanded(
-                        child: xterm.TerminalView(
-                          _historyTerminal!,
-                          scrollController: _historyScrollController,
-                          readOnly: true,
-                          hardwareKeyboardOnly: true,
-                          textStyle: _kTermStyle,
-                          theme: _kTermTheme,
+                        child: AnimatedOpacity(
+                          opacity: _historyReady ? 1.0 : 0.0,
+                          duration: const Duration(milliseconds: 120),
+                          curve: Curves.easeOut,
+                          child: RawScrollbar(
+                            controller: _historyScrollController,
+                            thumbVisibility: true,
+                            thumbColor: const Color(0x805AC8FA),
+                            thickness: 4,
+                            radius: const Radius.circular(2),
+                            child: xterm.TerminalView(
+                              _historyTerminal!,
+                              controller: _historyController,
+                              scrollController: _historyScrollController,
+                              readOnly: true,
+                              hardwareKeyboardOnly: true,
+                              textStyle: _kTermStyle,
+                              theme: _kTermTheme,
+                            ),
+                          ),
                         ),
                       ),
                     ],
                   ),
-                ),
+                )
+                    : const SizedBox.shrink(
+                        key: ValueKey('no-history'),
+                      ),
+              ),
               if (_historyLoading)
                 const Positioned(
                   top: 0,
                   left: 0,
                   right: 0,
-                  child: LinearProgressIndicator(minHeight: 2),
+                  child: LinearProgressIndicator(
+                    minHeight: 2,
+                    backgroundColor: Color(0xFF1A1A1A),
+                    valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF5AC8FA)),
+                  ),
                 ),
               Positioned(
                 right: 14,
@@ -477,10 +681,23 @@ class _TerminalViewState extends State<TerminalView>
                           HapticFeedback.lightImpact();
                           _flingController.stop();
                           if (_scrollController.hasClients) {
-                            _scrollController.jumpTo(
-                                _scrollController.position.maxScrollExtent);
+                            final max =
+                                _scrollController.position.maxScrollExtent;
+                            final distance = max - _scrollController.offset;
+                            if (distance > 2000) {
+                              _scrollController.jumpTo(max);
+                            } else {
+                              _scrollController.animateTo(
+                                max,
+                                duration: const Duration(milliseconds: 300),
+                                curve: Curves.easeOutCubic,
+                              );
+                            }
                           }
-                          setState(() => _userScrolledUp = false);
+                          setState(() {
+                            _userScrolledUp = false;
+                            _hasNewOutput = false;
+                          });
                         },
                         child: Container(
                           width: 40,
@@ -489,7 +706,9 @@ class _TerminalViewState extends State<TerminalView>
                             color: const Color(0xFF2A2A2A),
                             shape: BoxShape.circle,
                             border: Border.all(
-                              color: const Color(0xFF5AC8FA),
+                              color: _hasNewOutput
+                                  ? const Color(0xFF34C759)
+                                  : const Color(0xFF5AC8FA),
                               width: 1.5,
                             ),
                             boxShadow: const [
@@ -500,9 +719,11 @@ class _TerminalViewState extends State<TerminalView>
                               ),
                             ],
                           ),
-                          child: const Icon(
+                          child: Icon(
                             Icons.keyboard_arrow_down,
-                            color: Color(0xFF5AC8FA),
+                            color: _hasNewOutput
+                                ? const Color(0xFF34C759)
+                                : const Color(0xFF5AC8FA),
                             size: 24,
                           ),
                         ),
@@ -515,49 +736,94 @@ class _TerminalViewState extends State<TerminalView>
             ),
           ),
         ),
-        if (!_focusNode.hasFocus)
-          _InputBar(
-            onTap: _showKeyboard,
-          ),
-        _ToolbarWrapper(
+        AnimatedSwitcher(
+          duration: const Duration(milliseconds: 200),
+          switchInCurve: Curves.easeOut,
+          switchOutCurve: Curves.easeIn,
+          transitionBuilder: (child, animation) {
+            return FadeTransition(
+              opacity: animation,
+              child: SizeTransition(
+                sizeFactor: animation,
+                axisAlignment: -1.0,
+                child: child,
+              ),
+            );
+          },
+          child: (!_historyMode && !_focusNode.hasFocus)
+              ? _InputBar(key: const ValueKey('input-bar'), onTap: _showKeyboard)
+              : const SizedBox.shrink(key: ValueKey('no-input-bar')),
+        ),
+        if (!_historyMode)
+          _ToolbarWrapper(
           session: widget.session,
           termController: _termController,
           terminalViewKey: _terminalViewKey,
           onHideKeyboard: _hideKeyboard,
-          onShowKeyboard: _showKeyboard,
+          onShowHistory: _enterHistory,
         ),
       ],
     );
   }
 }
 
-class _InputBar extends StatelessWidget {
+class _InputBar extends StatefulWidget {
   final VoidCallback onTap;
 
-  const _InputBar({required this.onTap});
+  const _InputBar({super.key, required this.onTap});
+
+  @override
+  State<_InputBar> createState() => _InputBarState();
+}
+
+class _InputBarState extends State<_InputBar>
+    with SingleTickerProviderStateMixin {
+  bool _pressed = false;
+  late final AnimationController _cursorBlink = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 800),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _cursorBlink.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: onTap,
+      onTapDown: (_) => setState(() => _pressed = true),
+      onTapUp: (_) => setState(() => _pressed = false),
+      onTapCancel: () => setState(() => _pressed = false),
+      onTap: () {
+        HapticFeedback.selectionClick();
+        widget.onTap();
+      },
       child: Container(
-        height: 36,
-        decoration: const BoxDecoration(
-          color: Color(0xFF1A1A1A),
-          border: Border(
+        height: 44,
+        decoration: BoxDecoration(
+          color: _pressed ? const Color(0xFF2A2A2A) : const Color(0xFF1A1A1A),
+          border: const Border(
             top: BorderSide(color: Color(0xFF2A2A2A), width: 0.5),
           ),
         ),
         padding: const EdgeInsets.symmetric(horizontal: 14),
-        child: const Row(
+        child: Row(
           children: [
-            Icon(
-              Icons.keyboard_outlined,
-              color: Colors.white38,
-              size: 18,
+            FadeTransition(
+              opacity: _cursorBlink,
+              child: const Text(
+                '▏',
+                style: TextStyle(
+                  color: Color(0xFF5AC8FA),
+                  fontSize: 16,
+                  height: 1.0,
+                ),
+              ),
             ),
-            SizedBox(width: 8),
-            Text(
+            const SizedBox(width: 8),
+            const Text(
               '点按输入命令',
               style: TextStyle(
                 color: Colors.white38,
@@ -576,13 +842,13 @@ class _ToolbarWrapper extends StatefulWidget {
   final xterm.TerminalController termController;
   final GlobalKey<xterm.TerminalViewState> terminalViewKey;
   final VoidCallback onHideKeyboard;
-  final VoidCallback onShowKeyboard;
+  final Future<void> Function() onShowHistory;
   const _ToolbarWrapper({
     required this.session,
     required this.termController,
     required this.terminalViewKey,
     required this.onHideKeyboard,
-    required this.onShowKeyboard,
+    required this.onShowHistory,
   });
 
   @override
@@ -595,6 +861,11 @@ class _ToolbarWrapperState extends State<_ToolbarWrapper> {
   bool _isListening = false;
   bool _speechAvailable = false;
 
+  void _showSnack(String message, {int seconds = 1}) {
+    if (!mounted) return;
+    showTerminalSnack(context, message, seconds: seconds);
+  }
+
   Future<void> _pasteImage() async {
     Map<dynamic, dynamic>? result;
     try {
@@ -605,12 +876,7 @@ class _ToolbarWrapperState extends State<_ToolbarWrapper> {
     }
     if (!mounted) return;
     if (result == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('剪贴板没有图片'),
-          duration: Duration(seconds: 1),
-        ),
-      );
+      _showSnack('剪贴板没有图片');
       return;
     }
     final format = (result['format'] as String?) ?? 'png';
@@ -634,12 +900,7 @@ class _ToolbarWrapperState extends State<_ToolbarWrapper> {
     widget.session.sendKey(cmd);
 
     final kb = (data.length * 3 / 4 / 1024).toStringAsFixed(1);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('已上传图片 (${kb}KB)'),
-        duration: const Duration(seconds: 2),
-      ),
-    );
+    _showSnack('已上传图片 (${kb}KB)', seconds: 2);
   }
 
   @override
@@ -670,22 +931,24 @@ class _ToolbarWrapperState extends State<_ToolbarWrapper> {
           setState(() => _isListening = false);
         }
       },
-      localeId: 'zh_CN',
-      listenMode: stt.ListenMode.dictation,
+      listenOptions: stt.SpeechListenOptions(
+        localeId: 'zh_CN',
+        listenMode: stt.ListenMode.dictation,
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    return KeyboardToolbar(
-      ctrlActive: widget.session.ctrlPressed,
-      isListening: _isListening,
-      onVoiceToggle: _toggleVoice,
-      onCtrlToggle: () {
-        widget.session.toggleCtrl();
-        setState(() {});
-      },
-      onCopyTerminal: () {
+    return ValueListenableBuilder<bool>(
+      valueListenable: widget.session.ctrlNotifier,
+      builder: (context, ctrlActive, _) {
+        return KeyboardToolbar(
+          ctrlActive: ctrlActive,
+          isListening: _isListening,
+          onVoiceToggle: _toggleVoice,
+          onCtrlToggle: widget.session.toggleCtrl,
+          onCopyTerminal: () {
         final terminal = widget.session.terminal;
         final selection = widget.termController.selection;
         String text;
@@ -703,24 +966,26 @@ class _ToolbarWrapperState extends State<_ToolbarWrapper> {
         }
         if (text.isNotEmpty) {
           Clipboard.setData(ClipboardData(text: text));
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('已复制到剪贴板'),
-              duration: Duration(seconds: 1),
-            ),
-          );
+          _showSnack('已复制到剪贴板');
         }
       },
       onKeyTap: (key) {
-        widget.onShowKeyboard();
         widget.session.sendKey(key);
-        if (widget.session.ctrlPressed) setState(() {});
       },
       onHideKeyboard: widget.onHideKeyboard,
-      onPaste: (text) {
-        widget.session.sendKey(text);
+      onShowHistory: widget.onShowHistory,
+      onPaste: () async {
+        final data = await Clipboard.getData(Clipboard.kTextPlain);
+        if (!mounted) return;
+        if (data?.text != null && data!.text!.isNotEmpty) {
+          widget.session.terminal.paste(data.text!);
+        } else {
+          _showSnack('剪贴板为空');
+        }
       },
       onPasteImage: _pasteImage,
+        );
+      },
     );
   }
 }

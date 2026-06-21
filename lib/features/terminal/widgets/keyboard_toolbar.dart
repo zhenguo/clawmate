@@ -1,14 +1,17 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-class KeyboardToolbar extends StatelessWidget {
+class KeyboardToolbar extends StatefulWidget {
   final bool ctrlActive;
   final VoidCallback onCtrlToggle;
   final ValueChanged<String> onKeyTap;
   final VoidCallback? onHideKeyboard;
-  final ValueChanged<String>? onPaste;
+  final VoidCallback? onPaste;
   final VoidCallback? onPasteImage;
   final VoidCallback? onCopyTerminal;
+  final VoidCallback? onShowHistory;
   final bool isListening;
   final VoidCallback? onVoiceToggle;
 
@@ -21,6 +24,7 @@ class KeyboardToolbar extends StatelessWidget {
     this.onPaste,
     this.onPasteImage,
     this.onCopyTerminal,
+    this.onShowHistory,
     this.isListening = false,
     this.onVoiceToggle,
   });
@@ -38,48 +42,220 @@ class KeyboardToolbar extends StatelessWidget {
   );
 
   @override
+  State<KeyboardToolbar> createState() => _KeyboardToolbarState();
+}
+
+class _KeyboardToolbarState extends State<KeyboardToolbar> {
+  final _scrollController = ScrollController();
+  bool _showRightFade = true;
+  bool _showLeftFade = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_onScroll);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _onScroll());
+  }
+
+  @override
+  void dispose() {
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final offset = _scrollController.offset;
+    final max = _scrollController.position.maxScrollExtent;
+    final atEnd = offset >= max - 8;
+    final atStart = offset <= 8;
+    bool changed = false;
+    if (atEnd != !_showRightFade) {
+      _showRightFade = !atEnd;
+      changed = true;
+    }
+    if (atStart != !_showLeftFade) {
+      _showLeftFade = !atStart;
+      changed = true;
+    }
+    if (changed) setState(() {});
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Container(
       height: 44,
-      color: _bg,
-      padding: const EdgeInsets.symmetric(horizontal: 2),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: [
-            _ToggleKey(
-              label: 'Ctrl',
-              active: ctrlActive,
-              accentColor: _accentColor,
-              onTap: onCtrlToggle,
-            ),
-            _IconKey(Icons.keyboard_tab, () => onKeyTap('\t'), tooltip: 'Tab'),
-            _TextKey('Esc', () => onKeyTap('\x1b')),
-            _TextKey('/', () => onKeyTap('/')),
-            _IconKey(Icons.keyboard_arrow_up, () => onKeyTap('\x1b[A')),
-            _IconKey(Icons.keyboard_arrow_down, () => onKeyTap('\x1b[B')),
-            _IconKey(Icons.history, () => onKeyTap('\x02[')),
-            _IconKey(Icons.keyboard_return, () => onKeyTap('\r')),
-            _TextKey('|', () => onKeyTap('|')),
-            _TextKey('~', () => onKeyTap('~')),
-            _IconKey(Icons.backspace_outlined, () => onKeyTap('\x7f')),
-            _IconKey(Icons.copy_outlined, () => onCopyTerminal?.call()),
-            _IconKey(Icons.content_paste, () async {
-              final data = await Clipboard.getData(Clipboard.kTextPlain);
-              if (data?.text != null && data!.text!.isNotEmpty) {
-                onPaste?.call(data.text!);
-              }
-            }),
-            _IconKey(Icons.image_outlined, () => onPasteImage?.call()),
-            _VoiceKey(
-              isListening: isListening,
-              onTap: onVoiceToggle,
-            ),
-            _IconKey(Icons.keyboard_hide_outlined, () => onHideKeyboard?.call()),
-          ],
+      decoration: const BoxDecoration(
+        color: KeyboardToolbar._bg,
+        border: Border(
+          top: BorderSide(color: Color(0xFF2A2A2A), width: 0.5),
         ),
       ),
+      padding: const EdgeInsets.symmetric(horizontal: 2),
+      child: Stack(
+        children: [
+          SingleChildScrollView(
+            controller: _scrollController,
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                // --- Modifiers ---
+                _ToggleKey(
+                  label: 'Ctrl',
+                  active: widget.ctrlActive,
+                  accentColor: KeyboardToolbar._accentColor,
+                  onTap: widget.onCtrlToggle,
+                ),
+                _TextKey('Esc', () => widget.onKeyTap('\x1b')),
+                _TextKey('^C', () => widget.onKeyTap('\x03')),
+                const SizedBox(width: 6),
+                // --- Navigation ---
+                _IconKey(Icons.keyboard_arrow_left, () => widget.onKeyTap('\x1b[D'), tooltip: '←', repeat: true),
+                _IconKey(Icons.keyboard_arrow_up, () => widget.onKeyTap('\x1b[A'), tooltip: '↑', repeat: true),
+                _IconKey(Icons.keyboard_arrow_down, () => widget.onKeyTap('\x1b[B'), tooltip: '↓', repeat: true),
+                _IconKey(Icons.keyboard_arrow_right, () => widget.onKeyTap('\x1b[C'), tooltip: '→', repeat: true),
+                _IconKey(Icons.keyboard_double_arrow_up, () => widget.onKeyTap('\x1b[5~'), tooltip: 'PgUp'),
+                _IconKey(Icons.keyboard_double_arrow_down, () => widget.onKeyTap('\x1b[6~'), tooltip: 'PgDn'),
+                _IconKey(Icons.backspace_outlined, () => widget.onKeyTap('\x7f'), repeat: true),
+                const SizedBox(width: 6),
+                // --- Editing ---
+                _IconKey(Icons.keyboard_tab, () => widget.onKeyTap('\t'), tooltip: 'Tab'),
+                _TextKey('/', () => widget.onKeyTap('/'), repeat: true),
+                _TextKey('Home', () => widget.onKeyTap('\x01')),
+                _TextKey('End', () => widget.onKeyTap('\x05')),
+                _IconKey(Icons.keyboard_return, () => widget.onKeyTap('\r')),
+                const SizedBox(width: 6),
+                // --- Symbols ---
+                _TextKey('-', () => widget.onKeyTap('-'), repeat: true),
+                _TextKey('_', () => widget.onKeyTap('_'), repeat: true),
+                _TextKey('.', () => widget.onKeyTap('.'), repeat: true),
+                _TextKey('\$', () => widget.onKeyTap('\$'), repeat: true),
+                _TextKey('&', () => widget.onKeyTap('&'), repeat: true),
+                _TextKey('|', () => widget.onKeyTap('|'), repeat: true),
+                _TextKey('~', () => widget.onKeyTap('~'), repeat: true),
+                const SizedBox(width: 6),
+                // --- Actions ---
+                _IconKey(Icons.history, () => widget.onShowHistory?.call()),
+                _IconKey(Icons.copy_outlined, () => widget.onCopyTerminal?.call()),
+                _IconKey(Icons.content_paste, () => widget.onPaste?.call()),
+                _IconKey(Icons.image_outlined, () => widget.onPasteImage?.call()),
+                _VoiceKey(
+                  isListening: widget.isListening,
+                  onTap: widget.onVoiceToggle,
+                ),
+                _IconKey(Icons.keyboard_hide_outlined, () => widget.onHideKeyboard?.call()),
+              ],
+            ),
+          ),
+          Positioned(
+            right: 0,
+            top: 0,
+            bottom: 0,
+            width: 36,
+            child: IgnorePointer(
+              child: AnimatedOpacity(
+                opacity: _showRightFade ? 1.0 : 0.0,
+                duration: const Duration(milliseconds: 160),
+                curve: Curves.easeOut,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.centerLeft,
+                      end: Alignment.centerRight,
+                      colors: [
+                        KeyboardToolbar._bg.withValues(alpha: 0),
+                        KeyboardToolbar._bg,
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: 36,
+            child: IgnorePointer(
+              child: AnimatedOpacity(
+                opacity: _showLeftFade ? 1.0 : 0.0,
+                duration: const Duration(milliseconds: 160),
+                curve: Curves.easeOut,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.centerRight,
+                      end: Alignment.centerLeft,
+                      colors: [
+                        KeyboardToolbar._bg.withValues(alpha: 0),
+                        KeyboardToolbar._bg,
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
+  }
+}
+
+mixin _RepeatableKey<T extends StatefulWidget> on State<T> {
+  bool _pressed = false;
+  bool _didRepeat = false;
+  Timer? _repeatDelay;
+  Timer? _repeatTimer;
+
+  bool get repeatEnabled;
+  VoidCallback? get repeatAction;
+
+  void _startRepeat() {
+    if (!repeatEnabled) return;
+    _repeatDelay = Timer(const Duration(milliseconds: 400), () {
+      _repeatTimer = Timer.periodic(const Duration(milliseconds: 70), (_) {
+        _didRepeat = true;
+        repeatAction?.call();
+      });
+    });
+  }
+
+  void _stopRepeat() {
+    _repeatDelay?.cancel();
+    _repeatDelay = null;
+    _repeatTimer?.cancel();
+    _repeatTimer = null;
+  }
+
+  @override
+  void dispose() {
+    _stopRepeat();
+    super.dispose();
+  }
+
+  void _handleTapDown() {
+    _didRepeat = false;
+    _startRepeat();
+    setState(() => _pressed = true);
+  }
+
+  void _handleTapUp() {
+    _stopRepeat();
+    setState(() => _pressed = false);
+  }
+
+  void _handleTapCancel() {
+    _stopRepeat();
+    setState(() => _pressed = false);
+  }
+
+  void _handleTap() {
+    if (_didRepeat) return;
+    HapticFeedback.selectionClick();
+    repeatAction?.call();
   }
 }
 
@@ -87,29 +263,30 @@ class _IconKey extends StatefulWidget {
   final IconData icon;
   final VoidCallback? onTap;
   final String? tooltip;
+  final bool repeat;
 
-  const _IconKey(this.icon, this.onTap, {this.tooltip});
+  const _IconKey(this.icon, this.onTap, {this.tooltip, this.repeat = false});
 
   @override
   State<_IconKey> createState() => _IconKeyState();
 }
 
-class _IconKeyState extends State<_IconKey> {
-  bool _pressed = false;
+class _IconKeyState extends State<_IconKey> with _RepeatableKey {
+  @override
+  bool get repeatEnabled => widget.repeat;
+  @override
+  VoidCallback? get repeatAction => widget.onTap;
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTapDown: (_) => setState(() => _pressed = true),
-      onTapUp: (_) => setState(() => _pressed = false),
-      onTapCancel: () => setState(() => _pressed = false),
-      onTap: () {
-        HapticFeedback.selectionClick();
-        widget.onTap?.call();
-      },
+      onTapDown: (_) => _handleTapDown(),
+      onTapUp: (_) => _handleTapUp(),
+      onTapCancel: _handleTapCancel,
+      onTap: _handleTap,
       child: Container(
         width: 40,
-        height: 34,
+        height: 38,
         alignment: Alignment.center,
         margin: const EdgeInsets.symmetric(horizontal: 2),
         decoration: BoxDecoration(
@@ -131,29 +308,30 @@ class _IconKeyState extends State<_IconKey> {
 class _TextKey extends StatefulWidget {
   final String label;
   final VoidCallback onTap;
+  final bool repeat;
 
-  const _TextKey(this.label, this.onTap);
+  const _TextKey(this.label, this.onTap, {this.repeat = false});
 
   @override
   State<_TextKey> createState() => _TextKeyState();
 }
 
-class _TextKeyState extends State<_TextKey> {
-  bool _pressed = false;
+class _TextKeyState extends State<_TextKey> with _RepeatableKey {
+  @override
+  bool get repeatEnabled => widget.repeat;
+  @override
+  VoidCallback? get repeatAction => widget.onTap;
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTapDown: (_) => setState(() => _pressed = true),
-      onTapUp: (_) => setState(() => _pressed = false),
-      onTapCancel: () => setState(() => _pressed = false),
-      onTap: () {
-        HapticFeedback.selectionClick();
-        widget.onTap();
-      },
+      onTapDown: (_) => _handleTapDown(),
+      onTapUp: (_) => _handleTapUp(),
+      onTapCancel: _handleTapCancel,
+      onTap: _handleTap,
       child: Container(
         width: 40,
-        height: 34,
+        height: 38,
         alignment: Alignment.center,
         margin: const EdgeInsets.symmetric(horizontal: 2),
         decoration: BoxDecoration(
@@ -190,8 +368,43 @@ class _ToggleKey extends StatefulWidget {
   State<_ToggleKey> createState() => _ToggleKeyState();
 }
 
-class _ToggleKeyState extends State<_ToggleKey> {
+class _ToggleKeyState extends State<_ToggleKey>
+    with SingleTickerProviderStateMixin {
   bool _pressed = false;
+  late final AnimationController _pulseController = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 800),
+  );
+  late final Animation<double> _pulseAnim = Tween<double>(
+    begin: 0.6,
+    end: 1.0,
+  ).animate(CurvedAnimation(
+    parent: _pulseController,
+    curve: Curves.easeInOut,
+  ));
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.active) _pulseController.repeat(reverse: true);
+  }
+
+  @override
+  void didUpdateWidget(covariant _ToggleKey oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.active && !_pulseController.isAnimating) {
+      _pulseController.repeat(reverse: true);
+    } else if (!widget.active && _pulseController.isAnimating) {
+      _pulseController.stop();
+      _pulseController.value = 0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _pulseController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -204,19 +417,26 @@ class _ToggleKeyState extends State<_ToggleKey> {
         HapticFeedback.selectionClick();
         widget.onTap();
       },
-      child: Container(
-        width: 40,
-        height: 34,
-        alignment: Alignment.center,
-        margin: const EdgeInsets.symmetric(horizontal: 2),
-        decoration: BoxDecoration(
-          color: active
-              ? widget.accentColor.withOpacity(_pressed ? 0.9 : 0.7)
-              : (_pressed
-                  ? KeyboardToolbar._keyPressColor
-                  : KeyboardToolbar._keyColor),
-          borderRadius: BorderRadius.circular(6),
-        ),
+      child: AnimatedBuilder(
+        animation: _pulseAnim,
+        builder: (context, child) {
+          return Container(
+            width: 40,
+            height: 38,
+            alignment: Alignment.center,
+            margin: const EdgeInsets.symmetric(horizontal: 2),
+            decoration: BoxDecoration(
+              color: active
+                  ? widget.accentColor.withValues(alpha:
+                      _pressed ? 0.9 : _pulseAnim.value)
+                  : (_pressed
+                      ? KeyboardToolbar._keyPressColor
+                      : KeyboardToolbar._keyColor),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: child,
+          );
+        },
         child: Text(
           widget.label,
           style: TextStyle(
@@ -258,12 +478,12 @@ class _VoiceKeyState extends State<_VoiceKey> {
             },
       child: Container(
         width: 40,
-        height: 34,
+        height: 38,
         alignment: Alignment.center,
         margin: const EdgeInsets.symmetric(horizontal: 2),
         decoration: BoxDecoration(
           color: listening
-              ? const Color(0xFFFF3B30).withOpacity(_pressed ? 0.9 : 0.7)
+              ? const Color(0xFFFF3B30).withValues(alpha: _pressed ? 0.9 : 0.7)
               : (_pressed
                   ? KeyboardToolbar._keyPressColor
                   : KeyboardToolbar._keyColor),

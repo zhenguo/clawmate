@@ -1,7 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
-
 import 'package:dartssh2/dartssh2.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -26,12 +24,14 @@ class TerminalSession {
   SshService ssh;
   MoshService? _mosh;
   SshService? _helperSsh;
-  bool _ctrlPressed = false;
+  final ValueNotifier<bool> ctrlNotifier = ValueNotifier(false);
   String? _lastTmuxSession;
   final ValueNotifier<bool> inTmuxSession = ValueNotifier(false);
 
   final StringBuffer _outputBuffer = StringBuffer();
   Timer? _flushTimer;
+  int _lastScrollBackMs = 0;
+  String? _lastCapturedScreenSig;
   Timer? _widgetPreviewTimer;
   Timer? _serverStatsTimer;
   StreamSubscription? _transportStateSub;
@@ -44,7 +44,7 @@ class TerminalSession {
   final List<String> scrollBackLines = [];
   static const _maxScrollBackLines = 5000;
 
-  bool get ctrlPressed => _ctrlPressed;
+  bool get ctrlPressed => ctrlNotifier.value;
   bool get _isMosh => profile.transportType == TransportType.mosh;
   String? get lastTmuxSession => _lastTmuxSession;
 
@@ -190,7 +190,11 @@ class TerminalSession {
       final text = _outputBuffer.toString();
       _outputBuffer.clear();
       terminal.write(text);
-      _captureScrollBack();
+      final now = DateTime.now().millisecondsSinceEpoch;
+      if (now - _lastScrollBackMs >= 200) {
+        _lastScrollBackMs = now;
+        _captureScrollBack();
+      }
       _outputController.add(null);
     }
   }
@@ -199,8 +203,17 @@ class TerminalSession {
     final buffer = terminal.buffer;
     final viewH = terminal.viewHeight;
     final scrollBack = buffer.height - viewH;
+    final screen = <String>[];
     for (var i = 0; i < viewH; i++) {
-      final line = buffer.lines[i + scrollBack].toString().trimRight();
+      screen.add(buffer.lines[i + scrollBack].toString().trimRight());
+    }
+    // Skip when the visible screen is byte-identical to the last capture —
+    // a redrawing TUI (htop/vim) would otherwise flood scrollBackLines with
+    // thousands of duplicate full-screen snapshots.
+    final sig = screen.join('\n');
+    if (sig == _lastCapturedScreenSig) return;
+    _lastCapturedScreenSig = sig;
+    for (final line in screen) {
       if (scrollBackLines.isEmpty || scrollBackLines.last != line || line.isEmpty) {
         scrollBackLines.add(line);
       }
@@ -276,23 +289,38 @@ class TerminalSession {
   }
 
   void _onTerminalOutput(String data) {
-    if (_ctrlPressed && data.length == 1) {
-      final code = data.codeUnitAt(0);
-      if (code >= 0x61 && code <= 0x7A) {
-        _write(String.fromCharCode(code - 0x60));
-      } else if (code >= 0x41 && code <= 0x5A) {
-        _write(String.fromCharCode(code - 0x40));
-      } else {
-        _write(data);
+    if (ctrlNotifier.value) {
+      ctrlNotifier.value = false;
+      if (data.length == 1) {
+        final code = data.codeUnitAt(0);
+        if (code >= 0x61 && code <= 0x7A) {
+          _write(String.fromCharCode(code - 0x60));
+          return;
+        }
+        if (code >= 0x41 && code <= 0x5A) {
+          _write(String.fromCharCode(code - 0x40));
+          return;
+        }
       }
-      _ctrlPressed = false;
+      const ctrlArrows = {
+        '\x1b[A': '\x1b[1;5A',
+        '\x1b[B': '\x1b[1;5B',
+        '\x1b[C': '\x1b[1;5C',
+        '\x1b[D': '\x1b[1;5D',
+      };
+      final modified = ctrlArrows[data];
+      if (modified != null) {
+        _write(modified);
+        return;
+      }
+      _write(data);
       return;
     }
     _write(data);
   }
 
   void toggleCtrl() {
-    _ctrlPressed = !_ctrlPressed;
+    ctrlNotifier.value = !ctrlNotifier.value;
   }
 
   void sendKey(String key) {
@@ -488,6 +516,7 @@ class TerminalSession {
     _transportStateSub?.cancel();
     _connectionStateController.close();
     _outputController.close();
+    ctrlNotifier.dispose();
     inTmuxSession.dispose();
     ssh.dispose();
     _mosh?.dispose();

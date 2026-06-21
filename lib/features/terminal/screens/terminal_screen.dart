@@ -27,7 +27,6 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   Timer? _healthTimer;
   String _speedText = '';
   int _latencyMs = -1;
-  int _reconnectAttempts = 0;
   static const _maxReconnectAttempts = 10;
 
   bool _wasConnected = false;
@@ -62,7 +61,6 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     _stateSub = _session.connectionStateStream.listen((state) {
       if (state == SshConnectionState.connected) {
         _wasConnected = true;
-        _reconnectAttempts = 0;
         _autoReconnecting = false;
         _reconnectTimer?.cancel();
         if (mounted) setState(() {});
@@ -102,7 +100,6 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     if (_autoReconnecting || _dialogShowing) return;
     _autoReconnecting = true;
     _dialogShowing = true;
-    _reconnectAttempts = 0;
     _showReconnectDialog();
   }
 
@@ -128,7 +125,6 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
           _wasConnected = true;
           _autoReconnecting = false;
           _dialogShowing = false;
-          _reconnectAttempts = 0;
           Navigator.pop(ctx);
         },
         onClose: () {
@@ -207,11 +203,11 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   }
 
   static ({String label, Color color}) _networkQuality(int ms) {
-    if (ms < 0) return (label: 'Unknown', color: Colors.grey);
-    if (ms <= 50) return (label: 'Excellent', color: Colors.greenAccent);
-    if (ms <= 100) return (label: 'Good', color: Colors.green);
-    if (ms <= 200) return (label: 'Fair', color: Colors.orange);
-    return (label: 'Poor', color: Colors.red);
+    if (ms < 0) return (label: '未知', color: const Color(0xFF8E8E93));
+    if (ms <= 50) return (label: '极佳', color: const Color(0xFF34C759));
+    if (ms <= 100) return (label: '良好', color: const Color(0xFF30D158));
+    if (ms <= 200) return (label: '一般', color: const Color(0xFFFF9F0A));
+    return (label: '较差', color: const Color(0xFFFF3B30));
   }
 
   static String _formatSpeed(int bytesPerSec) {
@@ -222,17 +218,25 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
   @override
   Widget build(BuildContext context) {
+    final connected = _session.connectionState == SshConnectionState.connected;
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
-        backgroundColor: Colors.grey[900],
-        foregroundColor: Colors.white,
+        backgroundColor: const Color(0xFF1A1A1A),
+        foregroundColor: Colors.white70,
+        elevation: 0,
+        scrolledUnderElevation: 0,
         titleSpacing: 0,
+        bottom: const PreferredSize(
+          preferredSize: Size.fromHeight(0.5),
+          child: Divider(
+              height: 0.5, thickness: 0.5, color: Color(0xFF2A2A2A)),
+        ),
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(widget.profile.name,
-                style: const TextStyle(fontSize: 14)),
+                style: const TextStyle(fontSize: 14, color: Colors.white)),
             Row(
               children: [
                 if (_latencyMs >= 0) ...[
@@ -252,38 +256,51 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                   const SizedBox(width: 8),
                 ],
                 if (_speedText.isNotEmpty)
-                  Text(_speedText,
-                      style: TextStyle(fontSize: 10, color: Colors.grey[400])),
+                  Flexible(
+                    child: Text(_speedText,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            fontSize: 10, color: Color(0xFF8E8E93))),
+                  ),
               ],
             ),
           ],
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.account_tree),
-            tooltip: 'git branches',
-            onPressed: () {
-              if (_session.connectionState == SshConnectionState.connected) {
-                _showGitBranchSheet();
-              }
-            },
+            visualDensity: VisualDensity.compact,
+            iconSize: 21,
+            icon: Icon(Icons.account_tree_outlined,
+                color: connected ? Colors.white70 : Colors.white24),
+            tooltip: 'Git 分支',
+            onPressed: connected ? _showGitBranchSheet : null,
           ),
           IconButton(
-            icon: const Icon(Icons.layers),
-            tooltip: 'tmux sessions',
-            onPressed: () {
-              if (_session.connectionState == SshConnectionState.connected) {
-                _showTmuxSessionSheet();
-              }
-            },
+            visualDensity: VisualDensity.compact,
+            iconSize: 21,
+            icon: Icon(Icons.grid_view_rounded,
+                color: connected ? Colors.white70 : Colors.white24),
+            tooltip: 'tmux 会话',
+            onPressed: connected ? _showTmuxSessionSheet : null,
+          ),
+          Container(
+            width: 0.5,
+            height: 20,
+            margin: const EdgeInsets.symmetric(horizontal: 6),
+            color: const Color(0xFF2A2A2A),
           ),
           IconButton(
-            icon: const Icon(Icons.close),
+            visualDensity: VisualDensity.compact,
+            iconSize: 21,
+            icon: const Icon(Icons.logout_rounded, color: Color(0xFFFF3B30)),
+            tooltip: '断开连接',
             onPressed: () {
               _session.disconnect();
               Navigator.pop(context);
             },
           ),
+          const SizedBox(width: 4),
         ],
       ),
       body: SafeArea(
@@ -296,10 +313,24 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                 right: 0,
                 bottom: 48,
                 child: Center(
-                  child: FilledButton.icon(
-                    onPressed: _retryConnect,
-                    icon: const Icon(Icons.refresh),
-                    label: const Text('Retry'),
+                  child: GestureDetector(
+                    onTap: _retryConnect,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF2A2A2A),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: const Color(0xFF5AC8FA), width: 1),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.refresh, color: Color(0xFF5AC8FA), size: 18),
+                          SizedBox(width: 6),
+                          Text('重新连接', style: TextStyle(color: Color(0xFF5AC8FA), fontSize: 14, fontWeight: FontWeight.w600)),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -336,7 +367,7 @@ class _ReconnectDialog extends StatefulWidget {
 class _ReconnectDialogState extends State<_ReconnectDialog> {
   _ReconnectPhase _phase = _ReconnectPhase.reconnecting;
   int _currentAttempt = 0;
-  String _statusMessage = 'Initializing...';
+  String _statusMessage = '正在初始化…';
   int _countdown = 0;
   Timer? _countdownTimer;
 
@@ -357,7 +388,7 @@ class _ReconnectDialogState extends State<_ReconnectDialog> {
       if (!mounted) return;
       setState(() {
         _currentAttempt = i;
-        _statusMessage = 'Connecting...';
+        _statusMessage = '正在连接…';
       });
 
       final success = await widget.onReconnectAttempt(i, (msg) {
@@ -376,7 +407,7 @@ class _ReconnectDialogState extends State<_ReconnectDialog> {
       if (i < widget.maxAttempts) {
         final delay = i <= 3 ? 2 : 5;
         _countdown = delay;
-        setState(() => _statusMessage = 'Connection failed');
+        setState(() => _statusMessage = '连接失败');
         _countdownTimer?.cancel();
         _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
           if (!mounted) return;
@@ -398,7 +429,7 @@ class _ReconnectDialogState extends State<_ReconnectDialog> {
   @override
   Widget build(BuildContext context) {
     return Dialog(
-      backgroundColor: Colors.grey[900],
+      backgroundColor: const Color(0xFF1A1A1A),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -415,8 +446,8 @@ class _ReconnectDialogState extends State<_ReconnectDialog> {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(
-          'Reconnecting...',
+        const Text(
+          '重新连接中…',
           style: TextStyle(
             fontSize: 18,
             fontWeight: FontWeight.bold,
@@ -424,33 +455,33 @@ class _ReconnectDialogState extends State<_ReconnectDialog> {
           ),
         ),
         const SizedBox(height: 24),
-        SizedBox(
+        const SizedBox(
           width: 48,
           height: 48,
           child: CircularProgressIndicator(
             strokeWidth: 3,
-            color: Colors.blueAccent,
+            color: Color(0xFF5AC8FA),
           ),
         ),
         const SizedBox(height: 20),
         Text(
-          'Attempt $_currentAttempt / ${widget.maxAttempts}',
-          style: TextStyle(
+          '第 $_currentAttempt / ${widget.maxAttempts} 次尝试',
+          style: const TextStyle(
             fontSize: 14,
-            color: Colors.grey[400],
+            color: Colors.white70,
           ),
         ),
         const SizedBox(height: 8),
         Text(
           _statusMessage,
-          style: TextStyle(fontSize: 13, color: Colors.grey[500]),
+          style: const TextStyle(fontSize: 13, color: Colors.white38),
           textAlign: TextAlign.center,
         ),
         if (_countdown > 0) ...[
           const SizedBox(height: 12),
           Text(
-            'Next retry in ${_countdown}s',
-            style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+            '$_countdown 秒后重试',
+            style: const TextStyle(fontSize: 12, color: Colors.white30),
           ),
         ],
       ],
@@ -461,14 +492,14 @@ class _ReconnectDialogState extends State<_ReconnectDialog> {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(Icons.check_circle, color: Colors.greenAccent, size: 56),
+        const Icon(Icons.check_circle, color: Color(0xFF34C759), size: 56),
         const SizedBox(height: 16),
-        Text(
-          'Connected!',
+        const Text(
+          '已连接',
           style: TextStyle(
             fontSize: 18,
             fontWeight: FontWeight.bold,
-            color: Colors.greenAccent,
+            color: Color(0xFF34C759),
           ),
         ),
       ],
@@ -483,11 +514,11 @@ class _ReconnectDialogState extends State<_ReconnectDialog> {
       children: [
         Row(
           children: [
-            Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 28),
+            const Icon(Icons.warning_amber_rounded, color: Color(0xFFFF9F0A), size: 28),
             const SizedBox(width: 8),
             Text(
-              '$transport Connection Lost',
-              style: TextStyle(
+              '$transport 连接断开',
+              style: const TextStyle(
                 fontSize: 17,
                 fontWeight: FontWeight.bold,
                 color: Colors.white,
@@ -497,34 +528,41 @@ class _ReconnectDialogState extends State<_ReconnectDialog> {
         ),
         const SizedBox(height: 16),
         Text(
-          'Auto-reconnect failed (${widget.maxAttempts}/${widget.maxAttempts})',
-          style: TextStyle(fontSize: 13, color: Colors.grey[400]),
+          '自动重连失败 (${widget.maxAttempts}/${widget.maxAttempts})',
+          style: const TextStyle(fontSize: 13, color: Colors.white70),
         ),
         const SizedBox(height: 16),
-        Text(
-          'Please check:',
+        const Text(
+          '请检查：',
           style: TextStyle(
             fontSize: 13,
             fontWeight: FontWeight.bold,
-            color: Colors.grey[300],
+            color: Colors.white70,
           ),
         ),
         const SizedBox(height: 8),
-        _checkItem('1. WiFi or cellular is enabled'),
-        _checkItem('2. Server is reachable'),
-        if (widget.isMosh) _checkItem('3. UDP ports 60000-61000 are open'),
+        _checkItem('1. Wi-Fi 或蜂窝网络已开启'),
+        _checkItem('2. 服务器可访问'),
+        if (widget.isMosh) _checkItem('3. UDP 端口 60000-61000 已开放'),
         const SizedBox(height: 20),
         Row(
           mainAxisAlignment: MainAxisAlignment.end,
           children: [
             TextButton(
               onPressed: widget.onClose,
-              child: Text('Close', style: TextStyle(color: Colors.grey[400])),
+              child: const Text('关闭', style: TextStyle(color: Colors.white38)),
             ),
             const SizedBox(width: 8),
-            FilledButton(
+            ElevatedButton(
               onPressed: widget.onRetry,
-              child: const Text('Reconnect'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF5AC8FA),
+                foregroundColor: Colors.black,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+                elevation: 0,
+              ),
+              child: const Text('重新连接', style: TextStyle(fontWeight: FontWeight.w600)),
             ),
           ],
         ),
@@ -535,7 +573,7 @@ class _ReconnectDialogState extends State<_ReconnectDialog> {
   Widget _checkItem(String text) {
     return Padding(
       padding: const EdgeInsets.only(left: 4, bottom: 4),
-      child: Text(text, style: TextStyle(fontSize: 13, color: Colors.grey[400])),
+      child: Text(text, style: const TextStyle(fontSize: 13, color: Colors.white54)),
     );
   }
 }
@@ -840,7 +878,7 @@ class _DirectoryPickerDialogState extends State<_DirectoryPickerDialog> {
                 child: ListView.separated(
                   scrollDirection: Axis.horizontal,
                   itemCount: _recentDirs.length,
-                  separatorBuilder: (_, __) => const SizedBox(width: 6),
+                  separatorBuilder: (_, _) => const SizedBox(width: 6),
                   itemBuilder: (_, i) {
                     final dir = _recentDirs[i];
                     final label = dir.contains('/')
@@ -1048,7 +1086,7 @@ class _ClaudeTaskDialogState extends State<_ClaudeTaskDialog> {
                 child: ListView.separated(
                   scrollDirection: Axis.horizontal,
                   itemCount: _recentDirs.length,
-                  separatorBuilder: (_, __) => const SizedBox(width: 6),
+                  separatorBuilder: (_, _) => const SizedBox(width: 6),
                   itemBuilder: (_, i) {
                     final dir = _recentDirs[i];
                     final label = dir.contains('/')
