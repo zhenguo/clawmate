@@ -514,7 +514,7 @@ class _TerminalViewState extends State<TerminalView>
           widget.session.terminal.mouseMode != xterm.MouseMode.none) {
         final v = _velocityTracker?.getVelocity().pixelsPerSecond.dy ?? 0;
         // Down-direction only (finger flicked up); up enters history.
-        if (v < -250) _startWheelFling(v);
+        if (v < -150) _startWheelFling(v);
       }
     }
     _velocityTracker = null;
