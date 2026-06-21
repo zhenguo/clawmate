@@ -249,7 +249,10 @@ class _TerminalViewState extends State<TerminalView>
       // springs back via _handlePointerUp.
       if (_scrollAccumX < _scrollAccum * 0.5) {
         _addOverscroll(event.delta.dy);
-        if (_scrollAccum >= _historyEnterThreshold) _enterHistory();
+        if (_scrollAccum >= _historyEnterThreshold) {
+          HapticFeedback.mediumImpact();
+          _enterHistory();
+        }
       }
       return;
     }
