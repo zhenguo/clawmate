@@ -790,13 +790,15 @@ class _TerminalViewState extends State<TerminalView>
               ? _InputBar(key: const ValueKey('input-bar'), onTap: _showKeyboard)
               : const SizedBox.shrink(key: ValueKey('no-input-bar')),
         ),
-        if (!_historyMode)
-          _ToolbarWrapper(
-          session: widget.session,
-          termController: _termController,
-          terminalViewKey: _terminalViewKey,
-          onHideKeyboard: _hideKeyboard,
-          onShowHistory: _enterHistory,
+        Offstage(
+          offstage: _historyMode,
+          child: _ToolbarWrapper(
+            session: widget.session,
+            termController: _termController,
+            terminalViewKey: _terminalViewKey,
+            onHideKeyboard: _hideKeyboard,
+            onShowHistory: _enterHistory,
+          ),
         ),
       ],
     );
