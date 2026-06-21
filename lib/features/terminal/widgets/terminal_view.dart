@@ -63,7 +63,7 @@ class _TerminalViewState extends State<TerminalView>
   Timer? _wheelFlingTimer;
   double _wheelFlingVel = 0;
   double _wheelFlingAccum = 0;
-  double _overscroll = 0;
+  final ValueNotifier<double> _overscroll = ValueNotifier(0);
   static const _kMaxOverscroll = 120.0;
   late final AnimationController _overscrollController =
       AnimationController.unbounded(vsync: this)..addListener(_onOverscrollTick);
@@ -175,6 +175,7 @@ class _TerminalViewState extends State<TerminalView>
     _wheelFlingTimer?.cancel();
     _flingController.dispose();
     _overscrollController.dispose();
+    _overscroll.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _focusNode.removeListener(_onFocusChange);
     widget.session.terminal.removeListener(_onTerminalChange);
@@ -309,7 +310,7 @@ class _TerminalViewState extends State<TerminalView>
       _addOverscroll(-(raw - max));
     } else {
       _scrollController.jumpTo(raw);
-      if (_overscroll != 0) setState(() => _overscroll = 0);
+      if (_overscroll.value != 0) _overscroll.value = 0;
     }
     final wasUp = _userScrolledUp;
     _userScrolledUp = _scrollController.offset < max - 1.0;
@@ -319,21 +320,21 @@ class _TerminalViewState extends State<TerminalView>
 
   void _addOverscroll(double delta) {
     _overscrollController.stop();
-    final resist = 1.0 - (_overscroll.abs() / _kMaxOverscroll).clamp(0.0, 0.85);
-    final next =
-        (_overscroll + delta * resist).clamp(-_kMaxOverscroll, _kMaxOverscroll);
-    setState(() => _overscroll = next);
+    final resist =
+        1.0 - (_overscroll.value.abs() / _kMaxOverscroll).clamp(0.0, 0.85);
+    _overscroll.value = (_overscroll.value + delta * resist)
+        .clamp(-_kMaxOverscroll, _kMaxOverscroll);
   }
 
   void _springBackOverscroll() {
-    if (_overscroll == 0) return;
+    if (_overscroll.value == 0) return;
     _overscrollController.animateWith(
-      SpringSimulation(_kOverscrollSpring, _overscroll, 0.0, 0.0),
+      SpringSimulation(_kOverscrollSpring, _overscroll.value, 0.0, 0.0),
     );
   }
 
   void _onOverscrollTick() {
-    setState(() => _overscroll = _overscrollController.value);
+    _overscroll.value = _overscrollController.value;
   }
 
   static final SpringDescription _kIosScrollSpring =
@@ -370,7 +371,7 @@ class _TerminalViewState extends State<TerminalView>
     // rubber-band instead of clipping it, so a fast flick bounces like iOS.
     final target =
         (-(raw - clamped)).clamp(-_kMaxOverscroll, _kMaxOverscroll);
-    if (_overscroll != target) setState(() => _overscroll = target);
+    if (_overscroll.value != target) _overscroll.value = target;
     final wasUp = _userScrolledUp;
     _userScrolledUp = clamped < max - 1.0;
     if (!_userScrolledUp) _hasNewOutput = false;
@@ -472,7 +473,7 @@ class _TerminalViewState extends State<TerminalView>
 
   void _handlePointerUp(PointerUpEvent event) {
     if (event.kind == PointerDeviceKind.touch && _pointerDownPos != null) {
-      if (_overscroll.abs() > 0.5) {
+      if (_overscroll.value.abs() > 0.5) {
         _springBackOverscroll();
         _velocityTracker = null;
         _pointerDownPos = null;
@@ -524,8 +525,12 @@ class _TerminalViewState extends State<TerminalView>
             onPointerUp: _handlePointerUp,
             child: Stack(
               children: [
-                Transform.translate(
-                  offset: Offset(0, _overscroll),
+                ValueListenableBuilder<double>(
+                  valueListenable: _overscroll,
+                  builder: (context, overscroll, child) => Transform.translate(
+                    offset: Offset(0, overscroll),
+                    child: child,
+                  ),
                   child: ScrollConfiguration(
                     behavior: const _NeverScrollBehavior(),
                     child: RawScrollbar(
