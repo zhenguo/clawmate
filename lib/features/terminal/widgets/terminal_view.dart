@@ -784,39 +784,6 @@ class _TerminalViewState extends State<TerminalView>
                             ),
                             const Spacer(),
                             _PressableScale(
-                              onTap: () {
-                                final sel = _historyController.selection;
-                                final text = (sel != null && _historyTerminal != null)
-                                    ? _historyTerminal!.buffer.getText(sel)
-                                    : '';
-                                if (text.trim().isNotEmpty) {
-                                  Clipboard.setData(ClipboardData(text: text));
-                                  _historyController.clearSelection();
-                                  HapticFeedback.selectionClick();
-                                  _historySnack('已复制到剪贴板');
-                                } else {
-                                  _historySnack('长按选择文本后再复制');
-                                }
-                              },
-                              builder: (pressed) => Container(
-                                width: 36,
-                                height: 30,
-                                alignment: Alignment.center,
-                                margin: const EdgeInsets.only(right: 6),
-                                decoration: BoxDecoration(
-                                  color: pressed
-                                      ? const Color(0xFF3A3A3A)
-                                      : const Color(0xFF2A2A2A),
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: Icon(
-                                  Icons.copy_outlined,
-                                  color: pressed ? Colors.white : Colors.white70,
-                                  size: 17,
-                                ),
-                              ),
-                            ),
-                            _PressableScale(
                               onTap: _exitHistory,
                               builder: (pressed) => Container(
                                 height: 44,
