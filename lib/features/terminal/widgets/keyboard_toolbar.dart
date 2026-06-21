@@ -116,8 +116,8 @@ class _KeyboardToolbarState extends State<KeyboardToolbar> {
                 // --- Editing ---
                 _IconKey(Icons.keyboard_tab, () => widget.onKeyTap('\t'), tooltip: 'Tab'),
                 _TextKey('/', () => widget.onKeyTap('/'), repeat: true),
-                _TextKey('Home', () => widget.onKeyTap('\x01')),
-                _TextKey('End', () => widget.onKeyTap('\x05')),
+                _TextKey('Home', () => widget.onKeyTap('\x1b[H')),
+                _TextKey('End', () => widget.onKeyTap('\x1b[F')),
                 const _GroupDivider(),
                 // --- Symbols ---
                 _TextKey('-', () => widget.onKeyTap('-'), repeat: true),
