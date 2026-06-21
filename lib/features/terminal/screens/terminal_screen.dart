@@ -1429,11 +1429,33 @@ class _GitBranchSheetState extends State<_GitBranchSheet> {
   }
 
   void _checkout(String branch) {
+    final branchName =
+        branch.startsWith('origin/') ? branch.substring(7) : branch;
+    final messenger = ScaffoldMessenger.of(context);
+    HapticFeedback.selectionClick();
     widget.onDismiss();
     widget.session.checkoutBranch(branch);
+    messenger.showSnackBar(SnackBar(
+      content: Row(
+        children: [
+          const Icon(Icons.swap_horiz, color: Colors.white, size: 18),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              'Switching to $branchName',
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+      duration: const Duration(seconds: 2),
+      behavior: SnackBarBehavior.floating,
+      backgroundColor: const Color(0xFF2A2A2A),
+    ));
   }
 
   void _runGitCommand(String cmd) {
+    HapticFeedback.selectionClick();
     widget.onDismiss();
     widget.session.sendKey('$cmd\n');
   }
