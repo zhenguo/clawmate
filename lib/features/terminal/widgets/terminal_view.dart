@@ -1573,7 +1573,19 @@ class _ToolbarWrapperState extends State<_ToolbarWrapper> {
   }
 
   Future<void> _initSpeech() async {
-    _speechAvailable = await _speech.initialize();
+    _speechAvailable = await _speech.initialize(
+      onStatus: (status) {
+        if (!mounted) return;
+        if (status == stt.SpeechToText.doneStatus ||
+            status == stt.SpeechToText.notListeningStatus) {
+          if (_isListening) setState(() => _isListening = false);
+        }
+      },
+      onError: (_) {
+        if (!mounted) return;
+        if (_isListening) setState(() => _isListening = false);
+      },
+    );
   }
 
   Future<void> _toggleVoice() async {
@@ -1583,7 +1595,19 @@ class _ToolbarWrapperState extends State<_ToolbarWrapper> {
       return;
     }
     if (!_speechAvailable) {
-      _speechAvailable = await _speech.initialize();
+      _speechAvailable = await _speech.initialize(
+        onStatus: (status) {
+          if (!mounted) return;
+          if (status == stt.SpeechToText.doneStatus ||
+              status == stt.SpeechToText.notListeningStatus) {
+            if (_isListening) setState(() => _isListening = false);
+          }
+        },
+        onError: (_) {
+          if (!mounted) return;
+          if (_isListening) setState(() => _isListening = false);
+        },
+      );
       if (!_speechAvailable) {
         _showSnack('语音输入不可用，请检查麦克风权限');
         return;
