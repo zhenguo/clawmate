@@ -356,8 +356,8 @@ class _TerminalViewState extends State<TerminalView>
     if (_historyLoading) return;
     if (_historyMode) return;
     _velocityTracker?.addPosition(event.timeStamp, event.position);
-    if (_focusNode.hasFocus) _hideKeyboard();
     if (widget.session.terminal.mouseMode == xterm.MouseMode.none) {
+      if (_focusNode.hasFocus) _hideKeyboard();
       _scrollNormalBuffer(event.delta.dy);
       return;
     }
