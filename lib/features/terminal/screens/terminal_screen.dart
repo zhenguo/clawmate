@@ -238,8 +238,39 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(widget.profile.name,
-                style: const TextStyle(fontSize: 14, color: Colors.white)),
+            Row(
+              children: [
+                Flexible(
+                  child: Text(widget.profile.name,
+                      style: const TextStyle(fontSize: 14, color: Colors.white),
+                      overflow: TextOverflow.ellipsis),
+                ),
+                const SizedBox(width: 6),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: widget.profile.transportType == TransportType.mosh
+                        ? const Color(0xFF34C759).withValues(alpha: 0.15)
+                        : const Color(0xFF5AC8FA).withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    widget.profile.transportType == TransportType.mosh
+                        ? 'Mosh'
+                        : 'SSH',
+                    style: TextStyle(
+                      fontSize: 9,
+                      fontWeight: FontWeight.w600,
+                      color:
+                          widget.profile.transportType == TransportType.mosh
+                              ? const Color(0xFF34C759)
+                              : const Color(0xFF5AC8FA),
+                    ),
+                  ),
+                ),
+              ],
+            ),
             _ConnectionStatsBar(session: _session),
           ],
         ),
