@@ -1166,7 +1166,10 @@ class _ToolbarWrapperState extends State<_ToolbarWrapper> {
     }
     if (!_speechAvailable) {
       _speechAvailable = await _speech.initialize();
-      if (!_speechAvailable) return;
+      if (!_speechAvailable) {
+        _showSnack('语音输入不可用，请检查麦克风权限');
+        return;
+      }
     }
     setState(() => _isListening = true);
     await _speech.listen(
