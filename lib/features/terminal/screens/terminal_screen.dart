@@ -357,6 +357,7 @@ class _ConnectionStatsBarState extends State<_ConnectionStatsBar> {
   Timer? _pingTimer;
   String _speedText = '';
   int _latencyMs = -1;
+  double? _emaMs;
 
   @override
   void initState() {
@@ -373,6 +374,7 @@ class _ConnectionStatsBarState extends State<_ConnectionStatsBar> {
             _speedText = '';
             _latencyMs = -1;
           });
+          _emaMs = null;
         }
         return;
       }
@@ -399,7 +401,20 @@ class _ConnectionStatsBarState extends State<_ConnectionStatsBar> {
   Future<void> _measureLatency() async {
     if (widget.session.connectionState != SshConnectionState.connected) return;
     final ms = await widget.session.ping();
-    if (mounted) setState(() => _latencyMs = ms);
+    if (!mounted) return;
+    if (ms < 0) {
+      // Ping timed out on a still-"connected" link — surface 未知 rather than
+      // keep advertising the last good quality, and reset smoothing.
+      _emaMs = null;
+      if (_latencyMs != -1) setState(() => _latencyMs = -1);
+      return;
+    }
+    // EMA (α=0.3) smooths jittery per-sample pings so the quality label
+    // reflects sustained network quality instead of flipping every 3 seconds.
+    const alpha = 0.3;
+    _emaMs = _emaMs == null ? ms.toDouble() : _emaMs! * (1 - alpha) + ms * alpha;
+    final smoothed = _emaMs!.round();
+    if (smoothed != _latencyMs) setState(() => _latencyMs = smoothed);
   }
 
   static ({String label, Color color}) _networkQuality(int ms) {
