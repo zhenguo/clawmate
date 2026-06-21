@@ -363,6 +363,19 @@ class _ConnectionStatsBarState extends State<_ConnectionStatsBar> {
     super.initState();
     _speedTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
+      final connected =
+          widget.session.connectionState == SshConnectionState.connected;
+      if (!connected) {
+        // Don't let the header keep advertising a stale "good" quality / speed
+        // while the link is actually down — clear until reconnect repopulates.
+        if (_speedText.isNotEmpty || _latencyMs != -1) {
+          setState(() {
+            _speedText = '';
+            _latencyMs = -1;
+          });
+        }
+        return;
+      }
       final s = widget.session.snapshotSpeed();
       setState(() {
         _speedText =
