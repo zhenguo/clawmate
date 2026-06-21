@@ -228,7 +228,7 @@ class _TerminalViewState extends State<TerminalView>
       return;
     }
     if (!_prefetching && _historyTerminal == null &&
-        widget.session.terminal.mouseMode != xterm.MouseMode.none) {
+        widget.session.inTmuxSession.value) {
       final last = _lastPrefetchAttempt;
       if (last == null || DateTime.now().difference(last).inSeconds >= 8) {
         _prefetchHistory();
@@ -389,21 +389,35 @@ class _TerminalViewState extends State<TerminalView>
     _scrollAccum += event.delta.dy;
     _scrollAccumX += event.delta.dx.abs();
     if (_scrollAccum > 0) {
-      // Pull-down-to-reveal-history. The remote owns the scrollback, so the
-      // live view can't scroll here — instead rubber-band it down as the user
-      // pulls, so crossing into history feels physical instead of a dead 48px
-      // snap. Vertical-dominant pulls only; release before the threshold
-      // springs back via _handlePointerUp.
-      if (_scrollAccumX < _scrollAccum * 0.5) {
-        _addOverscroll(event.delta.dy);
-        if (_scrollAccum >= _historyEnterThreshold) {
-          HapticFeedback.mediumImpact();
-          _enterHistory();
+      // Finger pulling down. Only a real tmux attach owns a capturable
+      // scrollback, so the pull-down-to-history affordance is gated on that —
+      // mouseMode alone is a false proxy (vim/htop/less/fzf enable mouse mode
+      // over plain SSH too, and hijacking their down-scroll into a dead-end
+      // history capture is the bug this guards against).
+      if (widget.session.inTmuxSession.value) {
+        // tmux: rubber-band toward the local history overlay. The remote owns
+        // the scrollback, so the live view can't scroll here — rubber-band it
+        // down as the user pulls so crossing into history feels physical
+        // instead of a dead 48px snap. Vertical-dominant pulls only; release
+        // before the threshold springs back via _handlePointerUp.
+        if (_scrollAccumX < _scrollAccum * 0.5) {
+          _addOverscroll(event.delta.dy);
+          if (_scrollAccum >= _historyEnterThreshold) {
+            HapticFeedback.mediumImpact();
+            _enterHistory();
+          }
         }
+        return;
       }
+      // Non-tmux mouse app (vim/htop/less): forward wheel-up so it scrolls its
+      // own buffer instead of the gesture dead-ending in history capture.
+      if (_scrollAccum < _scrollStep) return;
+      final upNotches = (_scrollAccum / _scrollStep).floor();
+      _scrollAccum = _scrollAccum % _scrollStep;
+      _sendWheel(true, upNotches);
       return;
     }
-    // Opposite direction: forward wheel notches to the remote (tmux/program).
+    // Finger pushing up: forward wheel-down notches to the remote (tmux/program).
     if (_scrollAccum.abs() < _scrollStep) return;
     final notches = (_scrollAccum.abs() / _scrollStep).floor();
     _scrollAccum = _scrollAccum.sign * (_scrollAccum.abs() % _scrollStep);
@@ -556,7 +570,7 @@ class _TerminalViewState extends State<TerminalView>
   Future<void> _enterHistory() async {
     if (_historyMode || _historyLoading) return;
     _liveHasNewOutput.value = false;
-    if (widget.session.terminal.mouseMode == xterm.MouseMode.none) {
+    if (!widget.session.inTmuxSession.value) {
       _historySnack('历史回看仅在 tmux 会话中可用');
       return;
     }
