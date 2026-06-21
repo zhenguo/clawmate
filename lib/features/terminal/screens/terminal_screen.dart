@@ -220,7 +220,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   Widget build(BuildContext context) {
     final connected = _session.connectionState == SshConnectionState.connected;
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: const Color(0xFF1A1A1A),
       appBar: AppBar(
         backgroundColor: const Color(0xFF1A1A1A),
         foregroundColor: Colors.white70,
