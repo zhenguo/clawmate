@@ -331,30 +331,31 @@ class _ScanSheetState extends ConsumerState<_ScanSheet> {
                     style: TextStyle(color: Colors.grey)),
               )
             else
-              ListView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: state.devices.length,
-                itemBuilder: (_, index) {
-                  final device = state.devices[index];
-                  final isProbing = _probingDevice == device.name;
-                  final addrInfo = device.allAddresses.length > 1
-                      ? '${device.host}:${device.port} (+${device.allAddresses.length - 1} IPs)'
-                      : '${device.host}:${device.port}';
-                  return ListTile(
-                    leading: const Icon(Icons.computer),
-                    title: Text(device.name),
-                    subtitle: Text(addrInfo),
-                    trailing: isProbing
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.add_circle_outline),
-                    onTap: isProbing ? null : () => _probeAndSelect(device),
-                  );
-                },
+              Flexible(
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: state.devices.length,
+                  itemBuilder: (_, index) {
+                    final device = state.devices[index];
+                    final isProbing = _probingDevice == device.name;
+                    final addrInfo = device.allAddresses.length > 1
+                        ? '${device.host}:${device.port} (+${device.allAddresses.length - 1} IPs)'
+                        : '${device.host}:${device.port}';
+                    return ListTile(
+                      leading: const Icon(Icons.computer),
+                      title: Text(device.name),
+                      subtitle: Text(addrInfo),
+                      trailing: isProbing
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.add_circle_outline),
+                      onTap: isProbing ? null : () => _probeAndSelect(device),
+                    );
+                  },
+                ),
               ),
             const Divider(height: 1),
             Padding(
