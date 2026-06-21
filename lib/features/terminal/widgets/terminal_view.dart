@@ -1610,17 +1610,100 @@ class _ToolbarWrapperState extends State<_ToolbarWrapper> {
       onPaste: () async {
         final data = await Clipboard.getData(Clipboard.kTextPlain);
         if (!mounted) return;
-        if (data?.text != null && data!.text!.isNotEmpty) {
-          widget.session.terminal.paste(data.text!);
-        } else {
+        if (data?.text == null || data!.text!.isEmpty) {
           _showSnack('剪贴板为空');
+          return;
         }
+        final text = data.text!;
+        final lineCount = '\n'.allMatches(text).length + 1;
+        if (lineCount > 1) {
+          final ok = await showDialog<bool>(
+            context: context,
+            builder: (ctx) => _MultiLinePasteDialog(
+              text: text,
+              lineCount: lineCount,
+            ),
+          );
+          if (ok != true || !mounted) return;
+        }
+        widget.session.terminal.paste(text);
       },
       onPasteImage: _pasteImage,
         );
           },
         );
       },
+    );
+  }
+}
+
+class _MultiLinePasteDialog extends StatelessWidget {
+  final String text;
+  final int lineCount;
+
+  const _MultiLinePasteDialog({required this.text, required this.lineCount});
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      backgroundColor: const Color(0xFF2A2A2A),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      titlePadding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
+      contentPadding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
+      title: Row(
+        children: [
+          const Icon(Icons.content_paste_go, color: Color(0xFFFF9F0A), size: 20),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '粘贴 $lineCount 行内容？',
+              style: const TextStyle(color: Colors.white, fontSize: 16),
+            ),
+          ),
+        ],
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            '多行内容粘贴后可能被立即执行，请确认：',
+            style: TextStyle(color: Colors.white54, fontSize: 12),
+          ),
+          const SizedBox(height: 10),
+          Container(
+            width: double.maxFinite,
+            constraints: const BoxConstraints(maxHeight: 200),
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1A1A1A),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: const Color(0xFF3A3A3A), width: 0.5),
+            ),
+            child: SingleChildScrollView(
+              child: Text(
+                text,
+                style: const TextStyle(
+                  color: Color(0xFFABB2BF),
+                  fontSize: 12,
+                  fontFamily: 'Menlo',
+                  height: 1.35,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text('取消', style: TextStyle(color: Color(0xFF8E8E93))),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context, true),
+          child: const Text('粘贴', style: TextStyle(color: Color(0xFF5AC8FA))),
+        ),
+      ],
     );
   }
 }
