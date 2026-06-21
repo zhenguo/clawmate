@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../../connections/models/connection_profile.dart';
 import '../providers/terminal_provider.dart';
@@ -35,6 +36,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    WakelockPlus.enable();
     _session = ref.read(terminalProvider(widget.profile));
     _connectAndDetectTmux();
     _healthTimer = Timer.periodic(const Duration(seconds: 2), (_) {
@@ -203,6 +205,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    WakelockPlus.disable();
     _healthTimer?.cancel();
     _reconnectTimer?.cancel();
     _stateSub?.cancel();
