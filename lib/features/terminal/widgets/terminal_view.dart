@@ -92,6 +92,8 @@ class _TerminalViewState extends State<TerminalView>
   final Map<int, Offset> _activePointers = {};
   double? _pinchBaseDistance;
   double? _pinchBaseFontSize;
+  final ValueNotifier<bool> _fontBadge = ValueNotifier(false);
+  Timer? _fontBadgeTimer;
 
   xterm.TerminalStyle get _termStyle => xterm.TerminalStyle(
     fontSize: _fontSize,
@@ -159,6 +161,14 @@ class _TerminalViewState extends State<TerminalView>
     await prefs.setDouble('terminal_font_size', _fontSize);
   }
 
+  void _showFontBadge() {
+    _fontBadgeTimer?.cancel();
+    _fontBadge.value = true;
+    _fontBadgeTimer = Timer(const Duration(milliseconds: 800), () {
+      _fontBadge.value = false;
+    });
+  }
+
   void _onSelectionChange() {
     _hasSelection.value = _termController.selection != null;
   }
@@ -223,10 +233,12 @@ class _TerminalViewState extends State<TerminalView>
   @override
   void dispose() {
     _wheelFlingTimer?.cancel();
+    _fontBadgeTimer?.cancel();
     _flingController.dispose();
     _overscrollController.dispose();
     _overscroll.dispose();
     _focused.dispose();
+    _fontBadge.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _focusNode.removeListener(_onFocusChange);
     widget.session.terminal.removeListener(_onTerminalChange);
@@ -302,7 +314,9 @@ class _TerminalViewState extends State<TerminalView>
             .clamp(_kMinFontSize, _kMaxFontSize)
             .roundToDouble();
         if (newSize != _fontSize) {
+          HapticFeedback.selectionClick();
           setState(() => _fontSize = newSize);
+          _showFontBadge();
         }
       }
       return;
@@ -958,6 +972,41 @@ class _TerminalViewState extends State<TerminalView>
                     ),
                   );
                 },
+              ),
+              ValueListenableBuilder<bool>(
+                valueListenable: _fontBadge,
+                builder: (context, show, _) => Positioned.fill(
+                  child: IgnorePointer(
+                    child: Center(
+                      child: AnimatedOpacity(
+                        opacity: show ? 1.0 : 0.0,
+                        duration: const Duration(milliseconds: 140),
+                        curve: Curves.easeOut,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 18, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: const Color(0xE61A1A1A),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: const Color(0xFF5AC8FA),
+                              width: 1.0,
+                            ),
+                          ),
+                          child: Text(
+                            '${_fontSize.toInt()} px',
+                            style: const TextStyle(
+                              color: Color(0xFF5AC8FA),
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                              fontFamily: 'Menlo',
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               ),
             ],
             ),
