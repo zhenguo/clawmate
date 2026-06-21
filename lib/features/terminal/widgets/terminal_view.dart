@@ -128,10 +128,6 @@ class _TerminalViewState extends State<TerminalView>
 
   void _onHistoryScroll() {
     if (!_historyMode || !_historyScrollController.hasClients) return;
-    // Only an active finger-drag past the bottom counts as the exit gesture.
-    // An iOS ballistic fling-bounce (finger already lifted) can overshoot the
-    // threshold on its own and must NOT auto-exit.
-    if (_pointerDownPos == null) return;
     final pos = _historyScrollController.position;
     if (pos.pixels > pos.maxScrollExtent + 36) {
       _exitHistory();

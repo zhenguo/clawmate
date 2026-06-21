@@ -109,6 +109,7 @@ class _KeyboardToolbarState extends State<KeyboardToolbar> {
                 ),
                 _TextKey('Esc', () => widget.onKeyTap('\x1b')),
                 _TextKey('^C', () => widget.onKeyTap('\x03')),
+                _IconKey(Icons.keyboard_return, () => widget.onKeyTap('\r')),
                 const SizedBox(width: 6),
                 // --- Navigation ---
                 _IconKey(Icons.keyboard_arrow_left, () => widget.onKeyTap('\x1b[D'), tooltip: '←', repeat: true),
@@ -124,7 +125,6 @@ class _KeyboardToolbarState extends State<KeyboardToolbar> {
                 _TextKey('/', () => widget.onKeyTap('/'), repeat: true),
                 _TextKey('Home', () => widget.onKeyTap('\x01')),
                 _TextKey('End', () => widget.onKeyTap('\x05')),
-                _IconKey(Icons.keyboard_return, () => widget.onKeyTap('\r')),
                 const SizedBox(width: 6),
                 // --- Symbols ---
                 _TextKey('-', () => widget.onKeyTap('-'), repeat: true),
