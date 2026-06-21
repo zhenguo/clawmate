@@ -785,6 +785,62 @@ class _TerminalViewState extends State<TerminalView>
                             ),
                             const Spacer(),
                             _PressableScale(
+                              onTap: () {
+                                if (_historyScrollController.hasClients) {
+                                  _historyScrollController.animateTo(
+                                    0,
+                                    duration: const Duration(milliseconds: 300),
+                                    curve: Curves.easeOutCubic,
+                                  );
+                                }
+                              },
+                              builder: (pressed) => Container(
+                                width: 36,
+                                height: 30,
+                                alignment: Alignment.center,
+                                margin: const EdgeInsets.only(right: 4),
+                                decoration: BoxDecoration(
+                                  color: pressed
+                                      ? const Color(0xFF3A3A3A)
+                                      : const Color(0xFF2A2A2A),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Icon(
+                                  Icons.vertical_align_top,
+                                  color: pressed ? Colors.white : Colors.white70,
+                                  size: 17,
+                                ),
+                              ),
+                            ),
+                            _PressableScale(
+                              onTap: () {
+                                if (_historyScrollController.hasClients) {
+                                  _historyScrollController.animateTo(
+                                    _historyScrollController.position.maxScrollExtent,
+                                    duration: const Duration(milliseconds: 300),
+                                    curve: Curves.easeOutCubic,
+                                  );
+                                }
+                              },
+                              builder: (pressed) => Container(
+                                width: 36,
+                                height: 30,
+                                alignment: Alignment.center,
+                                margin: const EdgeInsets.only(right: 6),
+                                decoration: BoxDecoration(
+                                  color: pressed
+                                      ? const Color(0xFF3A3A3A)
+                                      : const Color(0xFF2A2A2A),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Icon(
+                                  Icons.vertical_align_bottom,
+                                  color: pressed ? Colors.white : Colors.white70,
+                                  size: 17,
+                                ),
+                              ),
+                            ),
+                            _PressableScale(
                               onTap: _exitHistory,
                               builder: (pressed) => Container(
                                 height: 44,
