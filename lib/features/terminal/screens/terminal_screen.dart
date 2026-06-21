@@ -1124,6 +1124,8 @@ class _DirectoryPickerDialogState extends State<_DirectoryPickerDialog> {
                           leading:
                               const Icon(Icons.folder, color: Colors.amber),
                           title: Text(name),
+                          trailing: const Icon(Icons.chevron_right,
+                              color: Colors.white24, size: 20),
                           onTap: () => _navigateTo(dir),
                         );
                       },
@@ -1367,6 +1369,8 @@ class _ClaudeTaskDialogState extends State<_ClaudeTaskDialog> {
                           leading: const Icon(Icons.folder,
                               color: Colors.amber),
                           title: Text(name),
+                          trailing: const Icon(Icons.chevron_right,
+                              color: Colors.white24, size: 20),
                           onTap: () => _navigateTo(dir),
                         );
                       },
