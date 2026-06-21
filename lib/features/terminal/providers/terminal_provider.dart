@@ -125,14 +125,28 @@ class TerminalSession {
         height: terminal.viewHeight,
       );
 
-      session.stdout.cast<List<int>>().listen((data) {
-        ssh.addBytesIn(data.length);
-        _bufferOutput(utf8.decode(data, allowMalformed: true));
-      });
-      session.stderr.cast<List<int>>().listen((data) {
-        ssh.addBytesIn(data.length);
-        _bufferOutput(utf8.decode(data, allowMalformed: true));
-      });
+      // Decode through a stateful streaming decoder, not per-fragment: a
+      // multi-byte UTF-8 char (CJK, emoji) split across TCP packets would
+      // otherwise turn both halves into  garbage. The chunked decoder holds
+      // the incomplete trailing bytes until the next fragment completes them.
+      // stdout/stderr get independent decoders so their partial-byte state
+      // never cross-contaminates.
+      session.stdout
+          .cast<List<int>>()
+          .map((data) {
+            ssh.addBytesIn(data.length);
+            return data;
+          })
+          .transform(const Utf8Decoder(allowMalformed: true))
+          .listen(_bufferOutput);
+      session.stderr
+          .cast<List<int>>()
+          .map((data) {
+            ssh.addBytesIn(data.length);
+            return data;
+          })
+          .transform(const Utf8Decoder(allowMalformed: true))
+          .listen(_bufferOutput);
       // Layout's onResize may have fired before the channel was open and
       // become a no-op. Resend the current dimensions so the remote PTY
       // matches the visible viewport.
@@ -153,9 +167,10 @@ class TerminalSession {
       _transportStateSub?.cancel();
       _transportStateSub = _mosh!.stateStream.listen(
           (s) => _connectionStateController.add(_mapMoshState(s)));
-      _mosh!.outputStream.listen((data) {
-        _bufferOutput(utf8.decode(data, allowMalformed: true));
-      });
+      _mosh!.outputStream
+          .cast<List<int>>()
+          .transform(const Utf8Decoder(allowMalformed: true))
+          .listen(_bufferOutput);
       await _mosh!.connectAndShell(
         host: profile.host,
         port: profile.port,
