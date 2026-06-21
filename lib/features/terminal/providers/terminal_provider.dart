@@ -181,7 +181,14 @@ class TerminalSession {
 
   void _bufferOutput(String data) {
     _outputBuffer.write(data);
-    _flushTimer ??= Timer(const Duration(milliseconds: 32), _flushOutput);
+    // Large bursts (TUI redraws, cat, log scroll) coalesce on a ~60fps budget
+    // to avoid per-fragment re-layout thrash. Small interactive echo flushes on
+    // the next event-loop turn so each keystroke appears with no batching tax.
+    if (_outputBuffer.length > 256) {
+      _flushTimer ??= Timer(const Duration(milliseconds: 16), _flushOutput);
+    } else {
+      _flushTimer ??= Timer(Duration.zero, _flushOutput);
+    }
   }
 
   void _flushOutput() {
