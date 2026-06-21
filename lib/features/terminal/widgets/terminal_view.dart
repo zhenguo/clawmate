@@ -52,6 +52,7 @@ class _TerminalViewState extends State<TerminalView>
   double _scrollAccum = 0;
   double _scrollAccumX = 0;
   Offset? _pointerDownPos;
+  bool _stoppedMomentumOnDown = false;
   bool _userScrolledUp = false;
   bool _hasNewOutput = false;
   static const _scrollStep = 18.0;
@@ -212,6 +213,9 @@ class _TerminalViewState extends State<TerminalView>
       _pointerDownPos = event.position;
       _scrollAccum = 0;
       _scrollAccumX = 0;
+      _stoppedMomentumOnDown = _flingController.isAnimating ||
+          _overscrollController.isAnimating ||
+          _wheelFlingTimer != null;
       _flingController.stop();
       _stopWheelFling();
       _overscrollController.stop();
@@ -482,7 +486,10 @@ class _TerminalViewState extends State<TerminalView>
       }
       final distance = (event.position - _pointerDownPos!).distance;
       if (distance < _tapSlop) {
-        if (_historyMode) {
+        if (_stoppedMomentumOnDown) {
+          // This tap only halted coasting momentum (iOS convention) — don't
+          // also fire the keyboard toggle the user didn't ask for.
+        } else if (_historyMode) {
           // history overlay owns its own tap/selection gestures
         } else if (_termController.selection != null) {
           _termController.clearSelection();
