@@ -86,6 +86,10 @@ class _TerminalViewState extends State<TerminalView>
   Future<void>? _prefetchOp;
   final _historyScrollController = ScrollController();
   final _historyController = xterm.TerminalController();
+  // True when the live session emitted output while the history overlay was
+  // open — lets the LIVE button signal "there's something new" without forcing
+  // the user to abandon their scroll position to find out.
+  final ValueNotifier<bool> _liveHasNewOutput = ValueNotifier(false);
 
   double _fontSize = 12.0;
   static const _kMinFontSize = 8.0;
@@ -214,6 +218,12 @@ class _TerminalViewState extends State<TerminalView>
   }
 
   void _onTerminalChange() {
+    if (_historyMode) {
+      // Reading scrollback — don't autoscroll the hidden live view, just flag
+      // that new output landed so the LIVE button can advertise it.
+      if (!_liveHasNewOutput.value) _liveHasNewOutput.value = true;
+      return;
+    }
     if (!_prefetching && _historyTerminal == null &&
         widget.session.terminal.mouseMode != xterm.MouseMode.none) {
       final last = _lastPrefetchAttempt;
@@ -264,6 +274,7 @@ class _TerminalViewState extends State<TerminalView>
     _termController.removeListener(_onSelectionChange);
     _historyController.removeListener(_onSelectionChange);
     _hasSelection.dispose();
+    _liveHasNewOutput.dispose();
     _scrollController.dispose();
     _historyScrollController.dispose();
     _termController.dispose();
@@ -518,6 +529,7 @@ class _TerminalViewState extends State<TerminalView>
 
   Future<void> _enterHistory() async {
     if (_historyMode || _historyLoading) return;
+    _liveHasNewOutput.value = false;
     if (widget.session.terminal.mouseMode == xterm.MouseMode.none) {
       _historySnack('历史回看仅在 tmux 会话中可用');
       return;
@@ -603,6 +615,7 @@ class _TerminalViewState extends State<TerminalView>
 
   void _exitHistory() {
     _historyController.clearSelection();
+    _liveHasNewOutput.value = false;
     setState(() {
       _historyMode = false;
       _historyReady = false;
@@ -852,7 +865,10 @@ class _TerminalViewState extends State<TerminalView>
                                 ),
                               ),
                             ),
-                            _PressableScale(
+                            ValueListenableBuilder<bool>(
+                              valueListenable: _liveHasNewOutput,
+                              builder: (context, hasNew, child) {
+                                return _PressableScale(
                               onTap: _exitHistory,
                               builder: (pressed) => Container(
                                 height: 44,
@@ -866,16 +882,29 @@ class _TerminalViewState extends State<TerminalView>
                                     borderRadius: BorderRadius.circular(13),
                                     color: pressed
                                         ? const Color(0x2234C759)
-                                        : null,
+                                        : hasNew
+                                            ? const Color(0x1134C759)
+                                            : null,
                                     border: Border.all(
                                       color: const Color(0xFF34C759),
-                                      width: 1.0,
+                                      width: hasNew ? 1.5 : 1.0,
                                     ),
                                   ),
-                                  child: const Row(
+                                  child: Row(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
-                                      Text(
+                                      if (hasNew) ...[
+                                        Container(
+                                          width: 6,
+                                          height: 6,
+                                          decoration: const BoxDecoration(
+                                            color: Color(0xFF34C759),
+                                            shape: BoxShape.circle,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 5),
+                                      ],
+                                      const Text(
                                         'LIVE',
                                         style: TextStyle(
                                           color: Color(0xFF34C759),
@@ -884,8 +913,8 @@ class _TerminalViewState extends State<TerminalView>
                                           letterSpacing: 0.5,
                                         ),
                                       ),
-                                      SizedBox(width: 3),
-                                      Icon(
+                                      const SizedBox(width: 3),
+                                      const Icon(
                                         Icons.arrow_forward,
                                         color: Color(0xFF34C759),
                                         size: 14,
@@ -894,6 +923,8 @@ class _TerminalViewState extends State<TerminalView>
                                   ),
                                 ),
                               ),
+                            );
+                              },
                             ),
                           ],
                         ),
