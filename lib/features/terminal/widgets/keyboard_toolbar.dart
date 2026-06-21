@@ -218,6 +218,22 @@ class _GroupDivider extends StatelessWidget {
   }
 }
 
+class _PressScale extends StatelessWidget {
+  final bool pressed;
+  final Widget child;
+  const _PressScale({required this.pressed, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedScale(
+      scale: pressed ? 0.92 : 1.0,
+      duration: const Duration(milliseconds: 90),
+      curve: Curves.easeOut,
+      child: child,
+    );
+  }
+}
+
 mixin _RepeatableKey<T extends StatefulWidget> on State<T> {
   bool _pressed = false;
   bool _didRepeat = false;
@@ -298,21 +314,24 @@ class _IconKeyState extends State<_IconKey> with _RepeatableKey {
       onTapUp: (_) => _handleTapUp(),
       onTapCancel: _handleTapCancel,
       onTap: _handleTap,
-      child: Container(
-        width: 40,
-        height: 38,
-        alignment: Alignment.center,
-        margin: const EdgeInsets.symmetric(horizontal: 2),
-        decoration: BoxDecoration(
-          color: _pressed
-              ? KeyboardToolbar._keyPressColor
-              : KeyboardToolbar._keyColor,
-          borderRadius: BorderRadius.circular(6),
-        ),
-        child: Icon(
-          widget.icon,
-          color: _pressed ? Colors.white : Colors.white70,
-          size: KeyboardToolbar._iconSize,
+      child: _PressScale(
+        pressed: _pressed,
+        child: Container(
+          width: 40,
+          height: 38,
+          alignment: Alignment.center,
+          margin: const EdgeInsets.symmetric(horizontal: 2),
+          decoration: BoxDecoration(
+            color: _pressed
+                ? KeyboardToolbar._keyPressColor
+                : KeyboardToolbar._keyColor,
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Icon(
+            widget.icon,
+            color: _pressed ? Colors.white : Colors.white70,
+            size: KeyboardToolbar._iconSize,
+          ),
         ),
       ),
     );
@@ -343,21 +362,24 @@ class _TextKeyState extends State<_TextKey> with _RepeatableKey {
       onTapUp: (_) => _handleTapUp(),
       onTapCancel: _handleTapCancel,
       onTap: _handleTap,
-      child: Container(
-        width: 40,
-        height: 38,
-        alignment: Alignment.center,
-        margin: const EdgeInsets.symmetric(horizontal: 2),
-        decoration: BoxDecoration(
-          color: _pressed
-              ? KeyboardToolbar._keyPressColor
-              : KeyboardToolbar._keyColor,
-          borderRadius: BorderRadius.circular(6),
-        ),
-        child: Text(
-          widget.label,
-          style: KeyboardToolbar._textStyle.copyWith(
-            color: _pressed ? Colors.white : Colors.white70,
+      child: _PressScale(
+        pressed: _pressed,
+        child: Container(
+          width: 40,
+          height: 38,
+          alignment: Alignment.center,
+          margin: const EdgeInsets.symmetric(horizontal: 2),
+          decoration: BoxDecoration(
+            color: _pressed
+                ? KeyboardToolbar._keyPressColor
+                : KeyboardToolbar._keyColor,
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Text(
+            widget.label,
+            style: KeyboardToolbar._textStyle.copyWith(
+              color: _pressed ? Colors.white : Colors.white70,
+            ),
           ),
         ),
       ),
@@ -431,7 +453,9 @@ class _ToggleKeyState extends State<_ToggleKey>
         HapticFeedback.selectionClick();
         widget.onTap();
       },
-      child: AnimatedBuilder(
+      child: _PressScale(
+        pressed: _pressed,
+        child: AnimatedBuilder(
         animation: _pulseAnim,
         builder: (context, child) {
           return Container(
@@ -458,6 +482,7 @@ class _ToggleKeyState extends State<_ToggleKey>
             fontSize: 11,
             fontWeight: active ? FontWeight.w700 : FontWeight.w500,
           ),
+        ),
         ),
       ),
     );
@@ -490,23 +515,26 @@ class _VoiceKeyState extends State<_VoiceKey> {
               HapticFeedback.selectionClick();
               widget.onTap!();
             },
-      child: Container(
-        width: 40,
-        height: 38,
-        alignment: Alignment.center,
-        margin: const EdgeInsets.symmetric(horizontal: 2),
-        decoration: BoxDecoration(
-          color: listening
-              ? const Color(0xFFFF3B30).withValues(alpha: _pressed ? 0.9 : 0.7)
-              : (_pressed
-                  ? KeyboardToolbar._keyPressColor
-                  : KeyboardToolbar._keyColor),
-          borderRadius: BorderRadius.circular(6),
-        ),
-        child: Icon(
-          listening ? Icons.mic : Icons.mic_none_outlined,
-          color: listening ? Colors.white : Colors.white70,
-          size: KeyboardToolbar._iconSize,
+      child: _PressScale(
+        pressed: _pressed,
+        child: Container(
+          width: 40,
+          height: 38,
+          alignment: Alignment.center,
+          margin: const EdgeInsets.symmetric(horizontal: 2),
+          decoration: BoxDecoration(
+            color: listening
+                ? const Color(0xFFFF3B30).withValues(alpha: _pressed ? 0.9 : 0.7)
+                : (_pressed
+                    ? KeyboardToolbar._keyPressColor
+                    : KeyboardToolbar._keyColor),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Icon(
+            listening ? Icons.mic : Icons.mic_none_outlined,
+            color: listening ? Colors.white : Colors.white70,
+            size: KeyboardToolbar._iconSize,
+          ),
         ),
       ),
     );
