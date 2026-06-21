@@ -99,6 +99,7 @@ class _TerminalViewState extends State<TerminalView>
   double? _pinchBaseFontSize;
   final ValueNotifier<bool> _fontBadge = ValueNotifier(false);
   Timer? _fontBadgeTimer;
+  Timer? _focusReshowTimer;
 
   xterm.TerminalStyle get _termStyle => xterm.TerminalStyle(
     fontSize: _fontSize,
@@ -255,13 +256,26 @@ class _TerminalViewState extends State<TerminalView>
     // Only the InputBar slot depends on focus — drive it through a notifier so
     // showing/hiding the keyboard doesn't rebuild the whole terminal tree mid
     // keyboard animation.
-    _focused.value = _focusNode.hasFocus;
+    if (_focusNode.hasFocus) {
+      _focusReshowTimer?.cancel();
+      _focusReshowTimer = null;
+      _focused.value = true;
+    } else {
+      // Defer the InputBar reappearance until the iOS keyboard dismiss
+      // animation (~300ms) is complete, so the bar slides in after the
+      // keyboard is fully gone instead of fighting it on the way down.
+      _focusReshowTimer?.cancel();
+      _focusReshowTimer = Timer(const Duration(milliseconds: 350), () {
+        if (mounted) _focused.value = false;
+      });
+    }
   }
 
   @override
   void dispose() {
     _wheelFlingTimer?.cancel();
     _fontBadgeTimer?.cancel();
+    _focusReshowTimer?.cancel();
     _flingController.dispose();
     _overscrollController.dispose();
     _overscroll.dispose();
