@@ -96,18 +96,17 @@ class _KeyboardToolbarState extends State<KeyboardToolbar> {
             scrollDirection: Axis.horizontal,
             child: Row(
               children: [
+                // --- Most-used: history nav + slash ---
+                _IconKey(Icons.keyboard_arrow_up, () => widget.onKeyTap('\x1b[A'), tooltip: '↑', repeat: true),
+                _IconKey(Icons.keyboard_arrow_down, () => widget.onKeyTap('\x1b[B'), tooltip: '↓', repeat: true),
+                _TextKey('/', () => widget.onKeyTap('/'), repeat: true),
+                const _GroupDivider(),
                 // --- Modifiers ---
                 _ToggleKey(
                   label: 'Ctrl',
                   active: widget.ctrlActive,
                   accentColor: KeyboardToolbar._accentColor,
                   onTap: widget.onCtrlToggle,
-                ),
-                _ToggleKey(
-                  label: 'Alt',
-                  active: widget.altActive,
-                  accentColor: KeyboardToolbar._accentColor,
-                  onTap: widget.onAltToggle,
                 ),
                 _TextKey('Esc', () => widget.onKeyTap('\x1b')),
                 _TextKey('^C', () => widget.onKeyTap('\x03')),
@@ -119,20 +118,17 @@ class _KeyboardToolbarState extends State<KeyboardToolbar> {
                 _IconKey(Icons.keyboard_tab, () => widget.onKeyTap('\t'), tooltip: 'Tab'),
                 _TextKey('⇧Tab', () => widget.onKeyTap('\x1b[Z')),
                 const _GroupDivider(),
-                // --- Navigation (history + cursor) ---
-                _IconKey(Icons.keyboard_arrow_up, () => widget.onKeyTap('\x1b[A'), tooltip: '↑', repeat: true),
-                _IconKey(Icons.keyboard_arrow_down, () => widget.onKeyTap('\x1b[B'), tooltip: '↓', repeat: true),
+                // --- Cursor + backspace ---
                 _IconKey(Icons.keyboard_arrow_left, () => widget.onKeyTap('\x1b[D'), tooltip: '←', repeat: true),
                 _IconKey(Icons.keyboard_arrow_right, () => widget.onKeyTap('\x1b[C'), tooltip: '→', repeat: true),
                 _IconKey(Icons.backspace_outlined, () => widget.onKeyTap('\x7f'), repeat: true),
                 const _GroupDivider(),
-                // --- Quick actions (most-used, close to left) ---
+                // --- Quick actions ---
                 _IconKey(Icons.history, () => widget.onShowHistory?.call()),
                 _IconKey(Icons.copy_outlined, () => widget.onCopyTerminal?.call()),
                 _IconKey(Icons.content_paste, () => widget.onPaste?.call()),
                 const _GroupDivider(),
                 // --- Claude Code prefix chars + must-have symbols ---
-                _TextKey('/', () => widget.onKeyTap('/'), repeat: true),
                 _TextKey('@', () => widget.onKeyTap('@')),
                 _TextKey('#', () => widget.onKeyTap('#'), repeat: true),
                 _TextKey('!', () => widget.onKeyTap('!')),
@@ -141,6 +137,14 @@ class _KeyboardToolbarState extends State<KeyboardToolbar> {
                 _TextKey('_', () => widget.onKeyTap('_'), repeat: true),
                 _TextKey('.', () => widget.onKeyTap('.'), repeat: true),
                 _TextKey(':', () => widget.onKeyTap(':'), repeat: true),
+                const _GroupDivider(),
+                // --- Alt (less frequent) ---
+                _ToggleKey(
+                  label: 'Alt',
+                  active: widget.altActive,
+                  accentColor: KeyboardToolbar._accentColor,
+                  onTap: widget.onAltToggle,
+                ),
                 const _GroupDivider(),
                 // --- Actions ---
                 _IconKey(Icons.image_outlined, () => widget.onPasteImage?.call()),
