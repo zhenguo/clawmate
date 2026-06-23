@@ -71,3 +71,11 @@ test_ssh2.dart
 
 # OS
 Thumbs.db
+
+# Ad-hoc research / scratch notes (not part of the app)
+agent_sdk_doc.xml
+agent_sdk_doc_full.json
+ch14_new_title_and_content.txt
+round5_updates.txt
+session_api_update.txt
+session_api_warning.xml
