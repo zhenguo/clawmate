@@ -741,11 +741,13 @@ class _TerminalViewState extends State<TerminalView>
           }
         } else if (_termController.selection != null) {
           _termController.clearSelection();
-        } else if (widget.session.terminal.mouseMode != xterm.MouseMode.none) {
-          // Mouse mode active (tmux/vim): xterm already forwarded the tap
-          // as a mouse click to the remote. Don't also toggle the keyboard.
         } else if (_focusNode.hasFocus) {
+          // Keyboard is up: a tap anywhere dismisses it, even in mouse mode
+          // (tmux/vim) where xterm also forwarded the tap as a mouse click.
           _hideKeyboard();
+        } else if (widget.session.terminal.mouseMode != xterm.MouseMode.none) {
+          // Mouse mode active and keyboard already down: xterm forwarded the
+          // tap as a mouse click to the remote. Don't pop the keyboard.
         } else {
           _showKeyboard();
         }
